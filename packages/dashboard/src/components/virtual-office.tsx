@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+
+const ProjectManager = lazy(() => import("./project-manager"));
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -468,13 +470,14 @@ export default function VirtualOffice() {
           </div>
         </div>
         <div style={S.tabs}>
-          {[{id:"office",l:"\u{1F3E2} Office"},{id:"commands",l:"\u26A1 Commands"},{id:"skills",l:"\u{1F3AF} Skills"},{id:"export",l:"\u{1F4E6} Export"}].map(t=>(
+          {[{id:"office",l:"\u{1F3E2} Office"},{id:"projects",l:"\u{1F4C2} Projects"},{id:"commands",l:"\u26A1 Commands"},{id:"skills",l:"\u{1F3AF} Skills"},{id:"export",l:"\u{1F4E6} Export"}].map(t=>(
             <button key={t.id} style={S.tab(view===t.id)} onClick={()=>setView(t.id)}>{t.l}</button>
           ))}
         </div>
       </div>
 
       {view==="office" && renderOffice()}
+      {view==="projects" && <Suspense fallback={<div style={{padding:40,textAlign:"center",color:"#475569"}}>Loading...</div>}><ProjectManager /></Suspense>}
       {view==="commands" && renderCommands()}
       {view==="skills" && renderSkills()}
       {view==="export" && renderExport()}
