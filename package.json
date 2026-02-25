@@ -1,0 +1,14 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "dev:dashboard": "npm run dev --workspace=packages/dashboard",
+    "cli": "node packages/cli/dist/index.js"
+  }
+}

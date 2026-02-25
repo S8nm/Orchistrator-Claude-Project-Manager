@@ -1,0 +1,22 @@
+# {{PROJECT_NAME}}
+
+## Quick Start
+
+```bash
+{{INSTALL_CMD}}
+{{DEV_CMD}}
+```
+
+## Architecture
+
+{{ARCHITECTURE_DESCRIPTION}}
+
+## Testing
+
+```bash
+{{TEST_CMD}}
+```
+
+## Code Style
+
+{{CODE_STYLE_NOTES}}
