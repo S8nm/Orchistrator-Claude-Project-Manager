@@ -1,4 +1,223 @@
 {
-  "projects": [],
-  "locations": []
+  "projects": [
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "path": "C:/Users/PC/Desktop/Claude",
+      "type": "monorepo",
+      "stack": ["typescript", "next.js", "node"],
+      "remote": "https://github.com/S8nm/Orchistrator-Claude-Project-Manager",
+      "status": "active",
+      "tags": ["meta", "cli", "dashboard"],
+      "commands": {
+        "dev": "npm run dev:dashboard",
+        "build": "npm run build",
+        "test": "npm test",
+        "cli": "npm run cli"
+      }
+    },
+    {
+      "id": "jarvis",
+      "name": "J.A.R.V.I.S.",
+      "path": "C:/Users/PC/Documents/!projects/JArvis",
+      "type": "fullstack",
+      "stack": ["python", "react", "electron"],
+      "remote": "https://github.com/S8nm/jarvis",
+      "status": "active",
+      "tags": ["ai", "assistant", "voice", "hud"],
+      "commands": {}
+    },
+    {
+      "id": "llm-council",
+      "name": "LLM Council",
+      "path": "C:/Users/PC/Documents/LLMCouncil/llm-council",
+      "type": "fullstack",
+      "stack": ["python", "pyproject"],
+      "remote": "",
+      "status": "active",
+      "tags": ["ai", "llm", "council"],
+      "commands": {}
+    },
+    {
+      "id": "qlion-qa",
+      "name": "Qlion.qa",
+      "path": "C:/Users/PC/Documents/!projects/Qlion.qa",
+      "type": "web-app",
+      "stack": ["typescript", "next.js", "react"],
+      "remote": "",
+      "status": "active",
+      "tags": ["website", "frontend"],
+      "commands": {
+        "dev": "npm run dev",
+        "build": "npm run build"
+      }
+    },
+    {
+      "id": "qterminal",
+      "name": "QTerminal",
+      "path": "C:/Users/PC/Documents/!projects/Qterminal",
+      "type": "desktop-app",
+      "stack": ["typescript", "next.js", "electron"],
+      "remote": "",
+      "status": "active",
+      "tags": ["terminal", "electron", "desktop"],
+      "commands": {
+        "dev": "npm run dev",
+        "build": "npm run build"
+      }
+    },
+    {
+      "id": "bloomberg-terminal",
+      "name": "Bloomberg Terminal Clone",
+      "path": "C:/Users/PC/Documents/!projects/bloombergterminal",
+      "type": "web-app",
+      "stack": ["typescript", "next.js", "react"],
+      "remote": "",
+      "status": "active",
+      "tags": ["finance", "dashboard", "frontend"],
+      "commands": {
+        "dev": "npm run dev",
+        "build": "npm run build"
+      }
+    },
+    {
+      "id": "auto-attendance-bot",
+      "name": "Auto Attendance Bot",
+      "path": "C:/Users/PC/Documents/!projects/auto attendacnce bot",
+      "type": "browser-extension",
+      "stack": ["javascript"],
+      "remote": "",
+      "status": "active",
+      "tags": ["automation", "chrome-extension", "bot"],
+      "commands": {}
+    },
+    {
+      "id": "personaplex",
+      "name": "Personaplex",
+      "path": "C:/Users/PC/Documents/!projects/personaplex",
+      "type": "fullstack",
+      "stack": ["python", "docker"],
+      "remote": "",
+      "status": "active",
+      "tags": ["ai", "personas"],
+      "commands": {}
+    },
+    {
+      "id": "ralph",
+      "name": "Ralph",
+      "path": "C:/Users/PC/Documents/!projects/ralph",
+      "type": "agent-framework",
+      "stack": ["markdown", "prompts"],
+      "remote": "",
+      "status": "active",
+      "tags": ["ai", "agent", "autonomous"],
+      "commands": {}
+    },
+    {
+      "id": "ag",
+      "name": "AG",
+      "path": "C:/Users/PC/Documents/!projects/ag",
+      "type": "jvm-app",
+      "stack": ["java", "gradle"],
+      "remote": "",
+      "status": "active",
+      "tags": ["backend", "java"],
+      "commands": {
+        "build": "gradle build"
+      }
+    },
+    {
+      "id": "aldiqqa-web",
+      "name": "Aldiqqa Web",
+      "path": "",
+      "type": "web-app",
+      "stack": [],
+      "remote": "https://github.com/S8nm/aldiqqahWeb",
+      "status": "active",
+      "tags": ["website"],
+      "commands": {}
+    },
+    {
+      "id": "aldiqqa-app",
+      "name": "Aldiqqa App",
+      "path": "",
+      "type": "mobile-app",
+      "stack": [],
+      "remote": "https://github.com/S8nm/Aldiqqa.App",
+      "status": "active",
+      "tags": ["mobile", "app"],
+      "commands": {}
+    },
+    {
+      "id": "athan-bot",
+      "name": "Athan Bot",
+      "path": "",
+      "type": "bot",
+      "stack": [],
+      "remote": "https://github.com/S8nm/Athan",
+      "status": "active",
+      "tags": ["discord", "bot", "athan"],
+      "commands": {}
+    },
+    {
+      "id": "hybrid-crypto-locker",
+      "name": "Hybrid Crypto Locker",
+      "path": "",
+      "type": "security-tool",
+      "stack": ["python"],
+      "remote": "https://github.com/S8nm/hybrid-crypto-locker",
+      "status": "active",
+      "tags": ["security", "encryption", "python"],
+      "commands": {}
+    },
+    {
+      "id": "aqarati-saas",
+      "name": "Aqarati SaaS",
+      "path": "",
+      "type": "web-app",
+      "stack": [],
+      "remote": "https://github.com/S8nm/aqarati-saas",
+      "status": "active",
+      "tags": ["saas", "real-estate"],
+      "commands": {}
+    },
+    {
+      "id": "aakari",
+      "name": "Aakari",
+      "path": "",
+      "type": "unknown",
+      "stack": [],
+      "remote": "https://github.com/S8nm/aakari",
+      "status": "active",
+      "tags": [],
+      "commands": {}
+    },
+    {
+      "id": "baloot-oop",
+      "name": "Baloot OOP",
+      "path": "",
+      "type": "game",
+      "stack": ["javascript"],
+      "remote": "https://github.com/S8nm/BalootOOP",
+      "status": "active",
+      "tags": ["game", "discord", "baloot"],
+      "commands": {}
+    },
+    {
+      "id": "b03-coursework",
+      "name": "B03 Coursework",
+      "path": "C:/Users/PC/Documents/GitHub/b03-sa2203236-sultan",
+      "type": "coursework",
+      "stack": [],
+      "remote": "",
+      "status": "active",
+      "tags": ["university", "assignments"],
+      "commands": {}
+    }
+  ],
+  "locations": [
+    "C:/Users/PC/Documents/!projects",
+    "C:/Users/PC/Documents/GitHub",
+    "C:/Users/PC/Desktop"
+  ]
 }

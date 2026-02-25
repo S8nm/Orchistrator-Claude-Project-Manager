@@ -3,7 +3,7 @@ import { z } from "zod";
 export const ProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  path: z.string().min(1),
+  path: z.string().default(""),
   type: z.string().default("unknown"),
   stack: z.array(z.string()).default([]),
   remote: z.string().optional(),
