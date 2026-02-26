@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import { spawnAgent as apiSpawnAgent, streamAgent, killAgentProcess } from "@/lib/api";
 
 const ProjectManager = lazy(() => import("./project-manager"));
 
@@ -107,7 +108,7 @@ export default function VirtualOffice() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState(0);
   const [modal, setModal] = useState<string | null>(null);
-  const [agentForm, setAgentForm] = useState({ type:"backend", name:"", skills:[] as string[] });
+  const [agentForm, setAgentForm] = useState({ type:"backend", name:"", skills:[] as string[], command:"", cwd:"" });
   const [taskForm, setTaskForm] = useState({ title:"", prompt:"", assignedAgent:null as string|null });
   const [newProjName, setNewProjName] = useState("");
   const [newProjStack, setNewProjStack] = useState("");
@@ -117,6 +118,7 @@ export default function VirtualOffice() {
   const [logs, setLogs] = useState<Record<string, {ts:string;msg:string}[]>>({});
   const [loaded, setLoaded] = useState(false);
   const logTimers = useRef<Record<string, any>>({});
+  const eventSources = useRef<Record<string, EventSource>>({});
 
   useEffect(() => {
     const s = loadState();
@@ -145,7 +147,8 @@ export default function VirtualOffice() {
     Object.keys(logTimers.current).forEach(k => clearInterval(logTimers.current[k]));
     logTimers.current = {};
     proj.agents.forEach((a: Agent) => {
-      if (a.status === "running") {
+      if (a.status === "running" && !eventSources.current[a.id]) {
+        // Only simulate logs for agents without a real SSE stream
         const tick = () => {
           const msgs = LOG_MESSAGES.running;
           const msg = msgs[Math.floor(Math.random()*msgs.length)];
@@ -163,29 +166,126 @@ export default function VirtualOffice() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proj.agents.map((a: Agent)=>a.id+a.status).join(",")]);
 
+  const connectStream = useCallback((agentId: string) => {
+    // Clean up existing connection
+    if (eventSources.current[agentId]) {
+      eventSources.current[agentId].close();
+    }
+
+    const ts = () => new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+
+    const es = streamAgent(
+      agentId,
+      (data) => {
+        // stdout
+        const lines = data.split("\n").filter(Boolean);
+        setLogs(prev => {
+          const arr = prev[agentId] || [];
+          const newEntries = lines.map(line => ({ ts: ts(), msg: line }));
+          return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
+        });
+      },
+      (data) => {
+        // stderr
+        const lines = data.split("\n").filter(Boolean);
+        setLogs(prev => {
+          const arr = prev[agentId] || [];
+          const newEntries = lines.map(line => ({ ts: ts(), msg: `\u26A0 ${line}` }));
+          return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
+        });
+      },
+      (info) => {
+        // exit
+        setLogs(prev => {
+          const arr = prev[agentId] || [];
+          const statusMsg = info.status === "done" ? "Process exited (0) \u2713" : `Process exited (${info.code}) \u2717`;
+          return { ...prev, [agentId]: [...arr, { ts: ts(), msg: statusMsg }] };
+        });
+        updateProj(p => {
+          p.agents = p.agents.map(a => a.id === agentId ? { ...a, status: info.status === "done" ? "done" : "failed" } : a);
+          return p;
+        });
+        delete eventSources.current[agentId];
+      },
+    );
+
+    eventSources.current[agentId] = es;
+  }, [updateProj]);
+
+  // Cleanup all EventSources on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(eventSources.current).forEach(es => es.close());
+    };
+  }, []);
+
   const copy = (txt: string, id: string) => {
     navigator.clipboard.writeText(txt).catch(()=>{});
     setCopyMsg(id);
     setTimeout(()=>setCopyMsg(null), 2000);
   };
 
-  const addAgent = () => {
+  const addAgent = async () => {
     const t = AGENT_TYPES[agentForm.type];
-    const a: Agent = { id:uid(), type:agentForm.type, name:agentForm.name||t.label, skills:agentForm.skills.length?agentForm.skills:[...t.skills], status:"idle", task:"", logs:[] };
+    const agentId = uid();
+    const hasCmd = agentForm.command.trim().length > 0;
+    const a: Agent = {
+      id: agentId,
+      type: agentForm.type,
+      name: agentForm.name || t.label,
+      skills: agentForm.skills.length ? agentForm.skills : [...t.skills],
+      status: hasCmd ? "running" : "idle",
+      task: hasCmd ? agentForm.command : "",
+      logs: [],
+    };
     updateProj(p => { p.agents.push(a); return p; });
-    setAgentForm({ type:"backend", name:"", skills:[] });
+
+    if (hasCmd) {
+      try {
+        const result = await apiSpawnAgent(agentId, agentForm.command, agentForm.cwd || ".");
+        if (result.success) {
+          connectStream(agentId);
+        } else {
+          const ts = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+          setLogs(prev => ({ ...prev, [agentId]: [{ ts, msg: `\u2717 Failed to spawn: ${result.error}` }] }));
+          updateProj(p => {
+            p.agents = p.agents.map(ag => ag.id === agentId ? { ...ag, status: "failed" } : ag);
+            return p;
+          });
+        }
+      } catch (e: any) {
+        const ts = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+        setLogs(prev => ({ ...prev, [agentId]: [{ ts, msg: `\u2717 Error: ${e.message}` }] }));
+        updateProj(p => {
+          p.agents = p.agents.map(ag => ag.id === agentId ? { ...ag, status: "failed" } : ag);
+          return p;
+        });
+      }
+    }
+
+    setAgentForm({ type:"backend", name:"", skills:[], command:"", cwd:"" });
     setModal(null);
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     const t: Task = { id:uid(), title:taskForm.title, prompt:taskForm.prompt, status:"queued", assignedAgent:taskForm.assignedAgent, created:Date.now(), tokens:Math.round(taskForm.prompt.length*0.35) };
     updateProj(p => { p.tasks.push(t); return p; });
     if (taskForm.assignedAgent) {
+      const agentId = taskForm.assignedAgent;
       updateProj(p => {
-        p.agents = p.agents.map(a => a.id===taskForm.assignedAgent ? {...a, status:"running", task:taskForm.title} : a);
+        p.agents = p.agents.map(a => a.id===agentId ? {...a, status:"running", task:taskForm.title} : a);
         p.tasks = p.tasks.map(tk => tk.id===t.id ? {...tk, status:"running"} : tk);
         return p;
       });
+      // If the prompt looks like a command, spawn it as a real process
+      if (taskForm.prompt.trim()) {
+        try {
+          const result = await apiSpawnAgent(agentId, taskForm.prompt, ".");
+          if (result.success) {
+            connectStream(agentId);
+          }
+        } catch {}
+      }
     }
     setTaskForm({ title:"", prompt:"", assignedAgent:null });
     setModal(null);
@@ -211,7 +311,15 @@ export default function VirtualOffice() {
     });
   };
 
-  const removeAgent = (id: string) => updateProj(p => { p.agents=p.agents.filter(a=>a.id!==id); return p; });
+  const removeAgent = (id: string) => {
+    // Kill process if running
+    if (eventSources.current[id]) {
+      eventSources.current[id].close();
+      delete eventSources.current[id];
+    }
+    killAgentProcess(id).catch(() => {});
+    updateProj(p => { p.agents=p.agents.filter(a=>a.id!==id); return p; });
+  };
   const removeTask = (id: string) => updateProj(p => { p.tasks=p.tasks.filter(t=>t.id!==id); return p; });
   const cycleTask = (id: string) => {
     const order = ["queued","running","done","failed","queued"];
@@ -312,6 +420,9 @@ export default function VirtualOffice() {
                       <span style={S.badge(STATUS_C[a.status])} onClick={()=>toggleStatus(a.id)}>
                         <span style={S.dot(STATUS_C[a.status])} />{a.status}
                       </span>
+                      {a.status === "running" && eventSources.current[a.id] && (
+                        <button onClick={()=>{ killAgentProcess(a.id).catch(()=>{}); }} style={{ ...S.btnSm("#ef4444"), fontSize:9 }}>Kill</button>
+                      )}
                       <button onClick={()=>removeAgent(a.id)} style={{ background:"transparent", border:"none", color:"#374151", cursor:"pointer", fontSize:16, padding:0, lineHeight:1 }}>{"\u00D7"}</button>
                     </div>
                   </div>
@@ -322,7 +433,7 @@ export default function VirtualOffice() {
                     </div>
                   )}
 
-                  <div style={{ padding:"8px 10px", height:145, overflowY:"auto", fontFamily:"'SF Mono',Monaco,'Fira Code',monospace", fontSize:10, lineHeight:1.7, background:"#08080f" }}>
+                  <div style={{ padding:"8px 10px", height:200, overflowY:"auto", fontFamily:"'SF Mono',Monaco,'Fira Code',monospace", fontSize:10, lineHeight:1.7, background:"#08080f" }}>
                     {isRunning && agentLogs.length > 0 ? (
                       agentLogs.map((l,i) => (
                         <div key={i} style={{ color: i===agentLogs.length-1 ? t.color : "#4a5568" }}>
@@ -491,7 +602,7 @@ export default function VirtualOffice() {
                 <div style={{ fontSize:11, color:"#64748b", marginBottom:3 }}>Type</div>
                 <select style={S.select} value={agentForm.type} onChange={e=>{
                   const tp=e.target.value;
-                  setAgentForm({type:tp, name:"", skills:[...AGENT_TYPES[tp].skills]});
+                  setAgentForm(f=>({...f, type:tp, name:"", skills:[...AGENT_TYPES[tp].skills]}));
                 }}>
                   {Object.entries(AGENT_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label} — {v.desk}</option>)}
                 </select>
@@ -503,6 +614,14 @@ export default function VirtualOffice() {
               <div style={{ marginBottom:10 }}>
                 <div style={{ fontSize:11, color:"#64748b", marginBottom:3 }}>Scope</div>
                 <div style={{ fontSize:11, color:"#475569", padding:8, background:panel, borderRadius:6 }}>{AGENT_TYPES[agentForm.type].scope}</div>
+              </div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:11, color:"#64748b", marginBottom:3 }}>Command <span style={{color:"#374151"}}>(runs a real process)</span></div>
+                <input style={S.input} placeholder="e.g. npm run dev, python main.py, claude --dangerously-skip-permissions" value={agentForm.command} onChange={e=>setAgentForm(f=>({...f,command:e.target.value}))} />
+              </div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:11, color:"#64748b", marginBottom:3 }}>Working Directory</div>
+                <input style={S.input} placeholder="e.g. C:/Users/PC/!projects/JArvis" value={agentForm.cwd} onChange={e=>setAgentForm(f=>({...f,cwd:e.target.value}))} />
               </div>
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:11, color:"#64748b", marginBottom:3 }}>Skills (tap to toggle)</div>
