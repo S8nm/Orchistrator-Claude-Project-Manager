@@ -5,7 +5,7 @@ import { spawnAgent, spawnClaudeAgent, spawnInteractiveClaude } from "@/lib/agen
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { id, command, cwd, mode, role, name, skills, prompt, model, orchestrationId, subTaskId, projectId } = body;
+    const { id, command, cwd, mode, role, name, skills, prompt, model, orchestrationId, subTaskId, projectId, mcpConfig, maxTurns } = body;
 
     if (!id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Path not found: ${cwd}` }, { status: 400 });
     }
 
-    const baseOpts = { id, cwd: workDir, role, name, skills, orchestrationId, subTaskId, projectId };
+    const baseOpts = { id, cwd: workDir, role, name, skills, orchestrationId, subTaskId, projectId, mcpConfig, maxTurns };
     let agent;
 
     if (mode === "claude" && prompt) {

@@ -18,17 +18,34 @@ const ROLE_PROMPTS: Record<string, string> = {
 
 function loadRepoContext(projectPath: string): string {
   const claudeMdPath = join(projectPath, "CLAUDE.md");
+  let context = `Project at: ${projectPath}`;
+
   if (existsSync(claudeMdPath)) {
     try {
       const content = readFileSync(claudeMdPath, "utf-8");
       const repoCtxMatch = content.match(/```[\s\S]*?Structure:[\s\S]*?```/);
-      if (repoCtxMatch) return repoCtxMatch[0];
-      return content.slice(0, 600);
+      if (repoCtxMatch) {
+        context = repoCtxMatch[0];
+      } else {
+        context = content.slice(0, 1500);
+      }
     } catch {
-      return `Project at: ${projectPath}`;
+      // fallback already set
     }
   }
-  return `Project at: ${projectPath}`;
+
+  return context;
+}
+
+export function findMcpConfig(projectPath: string): string | undefined {
+  const projectMcp = join(projectPath, ".mcp.json");
+  if (existsSync(projectMcp)) return projectMcp;
+
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const homeMcp = join(home, ".claude.json");
+  if (existsSync(homeMcp)) return homeMcp;
+
+  return undefined;
 }
 
 export function buildPrompt(subTask: SubTask, plan: OrchestrationPlan): string {

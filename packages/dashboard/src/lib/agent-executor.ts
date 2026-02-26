@@ -42,6 +42,8 @@ export interface SpawnOpts {
   orchestrationId?: string;
   subTaskId?: string;
   projectId?: string;
+  mcpConfig?: string;
+  maxTurns?: number;
 }
 
 // Tool restrictions per role
@@ -163,6 +165,8 @@ export function spawnClaudeAgent(opts: SpawnOpts & { prompt: string; model?: str
     "--tools", tools.join(","),
     "--dangerously-skip-permissions",
   ];
+  if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig);
+  if (opts.maxTurns) args.push("--max-turns", String(opts.maxTurns));
 
   // CRITICAL: stdin="ignore" for -p mode to avoid deadlock
   const child = spawn("claude", args, {
@@ -215,6 +219,8 @@ export function spawnInteractiveClaude(opts: SpawnOpts): AgentProcess {
     "--tools", tools.join(","),
     "--dangerously-skip-permissions",
   ];
+  if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig);
+  if (opts.maxTurns) args.push("--max-turns", String(opts.maxTurns));
 
   // Interactive mode: stdin MUST be "pipe" for bidirectional communication
   const child = spawn("claude", args, {

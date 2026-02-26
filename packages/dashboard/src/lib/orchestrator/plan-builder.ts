@@ -23,7 +23,7 @@ export function buildPlan(task: string, projectId: string, projectPath: string):
         skills: t.skills,
         deps: [],
         retryCount: 0,
-        maxRetries: 2,
+        maxRetries: 5,
         status: "pending" as const,
       };
     });
@@ -47,7 +47,7 @@ export function buildPlan(task: string, projectId: string, projectPath: string):
       skills: ["react-best-practices", "api-design", "error-handling"],
       deps: [],
       retryCount: 0,
-      maxRetries: 2,
+      maxRetries: 5,
       status: "ready",
     }];
   }
