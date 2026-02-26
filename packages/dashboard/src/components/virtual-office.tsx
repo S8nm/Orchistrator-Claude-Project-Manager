@@ -47,22 +47,15 @@ const PRESET_COMMANDS = [
   { id:"deploy", label:"\u{1F680} Deploy Prep", desc:"Lint \u2192 Types \u2192 Test \u2192 Build", cat:"quality", prompt:`Act as Orchestrator. Sequential: lint, typecheck, test, build, audit. Fix failures. Don't proceed until current passes.` },
 ];
 
-const LOG_MESSAGES: Record<string, string[]> = {
-  idle: ["Waiting for assignment...", "Standing by...", "Ready for tasks..."],
-  running: [
-    "Analyzing file structure...", "Reading dependencies...", "Scanning for patterns...",
-    "Compiling module...", "Running type checks...", "Resolving imports...",
-    "Building AST...", "Optimizing bundle...", "Checking test coverage...",
-    "Validating schema...", "Reviewing changes...", "Writing documentation...",
-    "Linting source files...", "Generating fixtures...", "Patching endpoints...",
-    "Migrating database...", "Caching prompt prefix...", "Batching API calls...",
-    "Spawning sub-process...", "Merging branches...", "Deploying artifacts...",
-    "Profiling performance...", "Auditing security...", "Compressing tokens...",
-  ],
-  done: ["Task complete \u2713", "All checks passed \u2713", "Delivered \u2713"],
-  failed: ["Error encountered \u2717", "Tests failing \u2717", "Needs retry \u2717"],
-  queued: ["In queue...", "Waiting for dependencies...", "Scheduled..."],
-};
+// Fetch real agents from server
+async function fetchServerAgents(): Promise<any[]> {
+  try {
+    const res = await fetch("/api/agent/list");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.agents || [];
+  } catch { return []; }
+}
 
 const STORAGE_KEY = "orchestrator-state";
 
@@ -120,7 +113,7 @@ export default function VirtualOffice() {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, {ts:string;msg:string}[]>>({});
   const [loaded, setLoaded] = useState(false);
-  const logTimers = useRef<Record<string, any>>({});
+  const [serverAgents, setServerAgents] = useState<any[]>([]);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [orchestrations, setOrchestrations] = useState<any[]>([]);
   const [activeOrch, setActiveOrch] = useState<string | null>(null);
@@ -134,9 +127,7 @@ export default function VirtualOffice() {
       setProjects(s.projects);
       setActiveProject(s.activeProject || 0);
     } else {
-      setProjects([{ id:uid(), name:"J.A.R.V.I.S.", stack:"Python + React", agents:[
-        { id:uid(), type:"orchestrator", name:"Orchestrator", skills:["task-decomposition","batching","prompt-caching"], status:"running", task:"Coordinating all agents", logs:[] },
-      ], tasks:[], tokensSaved:0 }]);
+      setProjects([{ id:uid(), name:"Default", stack:"TypeScript", agents:[], tasks:[], tokensSaved:0 }]);
     }
     setLoaded(true);
   }, []);
@@ -151,28 +142,17 @@ export default function VirtualOffice() {
     setProjects(p => p.map((pr,i) => i===activeProject ? fn({...pr, agents:[...pr.agents], tasks:[...pr.tasks]}) : pr));
   }, [activeProject]);
 
+  // Poll real agents from server every 2 seconds
   useEffect(() => {
-    Object.keys(logTimers.current).forEach(k => clearInterval(logTimers.current[k]));
-    logTimers.current = {};
-    proj.agents.forEach((a: Agent) => {
-      if (a.status === "running" && !eventSources.current[a.id]) {
-        // Only simulate logs for agents without a real SSE stream
-        const tick = () => {
-          const msgs = LOG_MESSAGES.running;
-          const msg = msgs[Math.floor(Math.random()*msgs.length)];
-          const ts = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
-          setLogs(prev => {
-            const arr = prev[a.id] || [];
-            return {...prev, [a.id]: [...arr.slice(-14), {ts, msg}]};
-          });
-        };
-        tick();
-        logTimers.current[a.id] = setInterval(tick, 1800 + Math.random()*2400);
-      }
-    });
-    return () => Object.keys(logTimers.current).forEach(k => clearInterval(logTimers.current[k]));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proj.agents.map((a: Agent)=>a.id+a.status).join(",")]);
+    let mounted = true;
+    const poll = async () => {
+      const agents = await fetchServerAgents();
+      if (mounted) setServerAgents(agents);
+    };
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   const connectStream = useCallback((agentId: string) => {
     // Clean up existing connection
@@ -219,6 +199,15 @@ export default function VirtualOffice() {
 
     eventSources.current[agentId] = es;
   }, [updateProj]);
+
+  // Auto-connect SSE streams for running server agents
+  useEffect(() => {
+    for (const sa of serverAgents) {
+      if (sa.status === "running" && !eventSources.current[sa.id]) {
+        connectStream(sa.id);
+      }
+    }
+  }, [serverAgents, connectStream]);
 
   // Cleanup all EventSources on unmount
   useEffect(() => {
@@ -285,12 +274,16 @@ export default function VirtualOffice() {
       setActiveOrch(orch.id);
       setOrchTask("");
       const es = streamOrchestration(orch.id, (event) => {
+        // When a task starts, auto-connect its agent's SSE stream
+        if (event.type === "task_started" && event.data.agentProcessId) {
+          setTimeout(() => connectStream(event.data.agentProcessId), 500);
+        }
         setOrchestrations(prev => prev.map(o => {
           if (o.id !== orch.id) return o;
           const updated = {...o};
           if (event.type === "task_started" || event.type === "task_done" || event.type === "task_failed") {
             updated.subTasks = updated.subTasks.map((st: any) =>
-              st.id === event.data.subTaskId ? {...st, status: event.type === "task_started" ? "running" : event.type === "task_done" ? "done" : "failed"} : st
+              st.id === event.data.subTaskId ? {...st, status: event.type === "task_started" ? "running" : event.type === "task_done" ? "done" : "failed", agentProcessId: event.data.agentProcessId || st.agentProcessId} : st
             );
           }
           if (event.type === "orchestration_done") {
@@ -381,14 +374,6 @@ export default function VirtualOffice() {
       p.agents = p.agents.map(a => {
         if (a.id!==agentId) return a;
         const next = order[order.indexOf(a.status)+1]||"idle";
-        if (next!=="running") {
-          setLogs(prev => {
-            const arr = prev[a.id]||[];
-            const ts = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
-            const msgs = LOG_MESSAGES[next];
-            return {...prev, [a.id]: [...arr.slice(-14), {ts, msg:msgs[Math.floor(Math.random()*msgs.length)]}]};
-          });
-        }
         return {...a, status:next};
       });
       return p;
@@ -449,7 +434,20 @@ export default function VirtualOffice() {
   };
 
   const renderOffice = () => {
-    const agents = proj.agents;
+    // Merge local project agents with real server agents (dedup by id)
+    const localIds = new Set(proj.agents.map((a: Agent) => a.id));
+    const realAgentCards: Agent[] = serverAgents
+      .filter(sa => !localIds.has(sa.id))
+      .map(sa => ({
+        id: sa.id,
+        type: sa.role || "fullstack",
+        name: sa.name || sa.role || "Agent",
+        skills: sa.skills || [],
+        status: sa.status === "running" ? "running" : sa.status === "done" ? "done" : sa.status === "failed" ? "failed" : "idle",
+        task: sa.command || "",
+        logs: [],
+      }));
+    const agents = [...proj.agents, ...realAgentCards];
     const running = agents.filter((a: Agent)=>a.status==="running").length;
     const done = agents.filter((a: Agent)=>a.status==="done").length;
 
@@ -518,21 +516,19 @@ export default function VirtualOffice() {
                   )}
 
                   <div style={{ padding:"8px 10px", height:200, overflowY:"auto", fontFamily:"'SF Mono',Monaco,'Fira Code',monospace", fontSize:10, lineHeight:1.7, background:"#08080f" }}>
-                    {isRunning && agentLogs.length > 0 ? (
+                    {agentLogs.length > 0 ? (
                       agentLogs.map((l,i) => (
-                        <div key={i} style={{ color: i===agentLogs.length-1 ? t.color : "#4a5568" }}>
+                        <div key={i} style={{ color: i===agentLogs.length-1 ? (isRunning ? t.color : "#4a5568") : "#4a5568" }}>
                           <span style={{ color:"#2d3748" }}>[{l.ts}]</span> {l.msg}
-                          {i===agentLogs.length-1 && <span style={{ animation:"blink 1s infinite", color:t.color }}> {"\u2588"}</span>}
+                          {isRunning && i===agentLogs.length-1 && <span style={{ animation:"blink 1s infinite", color:t.color }}> {"\u2588"}</span>}
                         </div>
                       ))
+                    ) : isRunning ? (
+                      <div style={{ color:t.color, fontStyle:"italic" }}>Connected — waiting for output...</div>
                     ) : a.status === "done" ? (
-                      <div style={{ color:"#10b981" }}>
-                        <span style={{ color:"#2d3748" }}>[{new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"})}]</span> All tasks completed {"\u2713"}
-                      </div>
+                      <div style={{ color:"#10b981" }}>Process completed {"\u2713"}</div>
                     ) : a.status === "failed" ? (
-                      <div style={{ color:"#ef4444" }}>
-                        <span style={{ color:"#2d3748" }}>[{new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"})}]</span> Error — needs retry {"\u2717"}
-                      </div>
+                      <div style={{ color:"#ef4444" }}>Process failed {"\u2717"}</div>
                     ) : (
                       <div style={{ color:"#2d3748", fontStyle:"italic" }}>Awaiting assignment...</div>
                     )}
