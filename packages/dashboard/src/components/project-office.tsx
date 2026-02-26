@@ -71,7 +71,7 @@ interface ProjectOfficeProps {
   };
   serverAgents: any[];
   logs: Record<string, { ts: string; msg: string }[]>;
-  onSpawnAgent: () => void;
+  onSpawnAgent: (config: { role: string; name: string; prompt: string; projectId: string; cwd: string }) => void;
   onSendInput: (agentId: string, input: string) => void;
   onKillAgent: (agentId: string) => void;
   onRunCommand: (command: string, cwd: string) => void;
@@ -786,6 +786,383 @@ const CommandTerminal = memo(function CommandTerminal({
   );
 });
 
+// -- Spawn Modal --------------------------------------------------------------
+
+const ROLE_KEYS = Object.keys(ROLE_CONFIG);
+
+function SpawnModal({
+  onSpawn,
+  onClose,
+  projectId,
+  cwd,
+}: {
+  onSpawn: (config: { role: string; name: string; prompt: string; projectId: string; cwd: string }) => void;
+  onClose: () => void;
+  projectId: string;
+  cwd: string;
+}) {
+  const [role, setRole] = useState("backend");
+  const [name, setName] = useState("backend-agent");
+  const [prompt, setPrompt] = useState("");
+  const [spawnHovered, setSpawnHovered] = useState(false);
+  const [cancelHovered, setCancelHovered] = useState(false);
+
+  const handleRoleChange = useCallback((newRole: string) => {
+    setRole(newRole);
+    const cfg = ROLE_CONFIG[newRole];
+    setName(cfg ? `${newRole}-agent` : `${newRole}-agent`);
+  }, []);
+
+  const handleSpawn = useCallback(() => {
+    if (!prompt.trim()) return;
+    onSpawn({ role, name: name.trim() || `${role}-agent`, prompt: prompt.trim(), projectId, cwd });
+  }, [role, name, prompt, projectId, cwd, onSpawn]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSpawn();
+    },
+    [onClose, handleSpawn],
+  );
+
+  const roleConfig = ROLE_CONFIG[role] || { icon: "\u{1F916}", color: "#6366f1", label: role };
+
+  return (
+    <div
+      onKeyDown={handleKeyDown}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0, 0, 0, 0.65)",
+        backdropFilter: "blur(6px)",
+        animation: "po-fadeInUp 0.2s ease both",
+      }}
+    >
+      <div
+        style={{
+          width: 480,
+          maxWidth: "90vw",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          background: T.surface1,
+          border: `1px solid ${T.border}`,
+          borderRadius: 14,
+          boxShadow: `0 0 60px rgba(0, 0, 0, 0.5), 0 0 30px ${T.primaryGlow}`,
+          display: "flex",
+          flexDirection: "column",
+          animation: "po-fadeInUp 0.3s ease both",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "18px 22px 14px",
+            borderBottom: `1px solid ${T.border}`,
+          }}
+        >
+          <span style={{ fontSize: 16 }}>{roleConfig.icon}</span>
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                fontFamily: FONT,
+                fontSize: 16,
+                fontWeight: 700,
+                color: T.textPrimary,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Spawn Agent
+            </div>
+            <div
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                color: T.textMuted,
+                marginTop: 2,
+              }}
+            >
+              Deploy a new agent to this project
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: `1px solid ${T.border}`,
+              background: T.surface2,
+              color: T.textMuted,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              outline: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.15s ease",
+              lineHeight: 1,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = T.danger + "55";
+              (e.currentTarget as HTMLButtonElement).style.color = T.danger;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = T.border;
+              (e.currentTarget as HTMLButtonElement).style.color = T.textMuted;
+            }}
+          >
+            {"\u2715"}
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Role selector */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.textSecondary,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Role
+            </label>
+            <select
+              value={role}
+              onChange={(e) => handleRoleChange(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                borderRadius: 8,
+                border: `1px solid ${T.border}`,
+                background: T.surface2,
+                color: T.textPrimary,
+                fontFamily: MONO,
+                fontSize: 12,
+                fontWeight: 500,
+                outline: "none",
+                cursor: "pointer",
+                appearance: "none",
+                WebkitAppearance: "none",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237b839a'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 12px center",
+                backgroundSize: "10px 6px",
+                transition: "border-color 0.15s ease",
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLSelectElement).style.borderColor = T.primary + "66";
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLSelectElement).style.borderColor = T.border;
+              }}
+            >
+              {ROLE_KEYS.map((key) => {
+                const cfg = ROLE_CONFIG[key];
+                return (
+                  <option key={key} value={key}>
+                    {cfg.icon} {cfg.label}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* Name input */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.textSecondary,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Agent Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. backend-agent"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                borderRadius: 8,
+                border: `1px solid ${T.border}`,
+                background: T.surface2,
+                color: T.textPrimary,
+                fontFamily: MONO,
+                fontSize: 12,
+                fontWeight: 500,
+                outline: "none",
+                transition: "border-color 0.15s ease",
+                boxSizing: "border-box",
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLInputElement).style.borderColor = T.primary + "66";
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLInputElement).style.borderColor = T.border;
+              }}
+            />
+          </div>
+
+          {/* Prompt textarea */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.textSecondary,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Task / Prompt
+            </label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe the task for this agent..."
+              rows={4}
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                borderRadius: 8,
+                border: `1px solid ${T.border}`,
+                background: T.surface2,
+                color: T.textPrimary,
+                fontFamily: MONO,
+                fontSize: 11,
+                fontWeight: 400,
+                lineHeight: 1.6,
+                outline: "none",
+                resize: "vertical",
+                minHeight: 80,
+                transition: "border-color 0.15s ease",
+                boxSizing: "border-box",
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLTextAreaElement).style.borderColor = T.primary + "66";
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLTextAreaElement).style.borderColor = T.border;
+              }}
+            />
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 9,
+                color: T.textMuted,
+                opacity: 0.7,
+              }}
+            >
+              Ctrl+Enter to spawn
+            </span>
+          </div>
+
+          {/* CWD info */}
+          <div
+            style={{
+              fontFamily: MONO,
+              fontSize: 10,
+              color: T.textMuted,
+              padding: "6px 10px",
+              background: T.surface2,
+              borderRadius: 6,
+              border: `1px solid ${T.border}`,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={cwd}
+          >
+            cwd: {cwd}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            padding: "0 22px 18px",
+          }}
+        >
+          <button
+            onClick={onClose}
+            onMouseEnter={() => setCancelHovered(true)}
+            onMouseLeave={() => setCancelHovered(false)}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 7,
+              border: `1px solid ${T.border}`,
+              background: cancelHovered ? T.surface3 : T.surface2,
+              color: T.textSecondary,
+              fontFamily: FONT,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              outline: "none",
+              transition: "all 0.15s ease",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSpawn}
+            disabled={!prompt.trim()}
+            onMouseEnter={() => setSpawnHovered(true)}
+            onMouseLeave={() => setSpawnHovered(false)}
+            style={{
+              padding: "8px 24px",
+              borderRadius: 7,
+              border: "none",
+              background: !prompt.trim()
+                ? T.textMuted + "33"
+                : spawnHovered
+                  ? T.primary
+                  : T.primary + "dd",
+              color: !prompt.trim() ? T.textMuted : T.base,
+              fontFamily: FONT,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: prompt.trim() ? "pointer" : "not-allowed",
+              outline: "none",
+              transition: "all 0.2s ease",
+              boxShadow: prompt.trim() && spawnHovered
+                ? `0 0 20px ${T.primaryGlow}`
+                : "none",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Spawn
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // -- Empty State --------------------------------------------------------------
 
 function EmptyState({ onSpawnAgent }: { onSpawnAgent: () => void }) {
@@ -897,6 +1274,7 @@ export default function ProjectOffice({
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [agentInputs, setAgentInputs] = useState<Record<string, string>>({});
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [showSpawnModal, setShowSpawnModal] = useState(false);
 
   // Filter agents belonging to this project
   const projectAgents = useMemo(() => {
@@ -1146,10 +1524,10 @@ export default function ProjectOffice({
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
             <button
-              onClick={onSpawnAgent}
+              onClick={() => setShowSpawnModal(true)}
               onMouseEnter={() => setHoveredBtn("spawn")}
               onMouseLeave={() => setHoveredBtn(null)}
-              style={mkBtn("spawn", "Spawn Agent", onSpawnAgent, "primary")}
+              style={mkBtn("spawn", "Spawn Agent", () => setShowSpawnModal(true), "primary")}
             >
               Spawn Agent
             </button>
@@ -1204,7 +1582,7 @@ export default function ProjectOffice({
 
       {/* ---- Agent Grid ---- */}
       {projectAgents.length === 0 ? (
-        <EmptyState onSpawnAgent={onSpawnAgent} />
+        <EmptyState onSpawnAgent={() => setShowSpawnModal(true)} />
       ) : (
         <div
           style={{
@@ -1241,6 +1619,19 @@ export default function ProjectOffice({
         onRunCommand={handleRunCommand}
         quickCommands={project.commands}
       />
+
+      {/* ---- Spawn Modal ---- */}
+      {showSpawnModal && (
+        <SpawnModal
+          projectId={project.id}
+          cwd={project.path}
+          onSpawn={(config) => {
+            onSpawnAgent(config);
+            setShowSpawnModal(false);
+          }}
+          onClose={() => setShowSpawnModal(false)}
+        />
+      )}
     </div>
   );
 }

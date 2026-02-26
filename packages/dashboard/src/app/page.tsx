@@ -37,8 +37,10 @@ export default function Home() {
   const [orchestrations, setOrchestrations] = useState<any[]>([]);
   const [logs, setLogs] = useState<Record<string, { ts: string; msg: string }[]>>({});
   const [loaded, setLoaded] = useState(false);
+  const [toasts, setToasts] = useState<{ id: string; msg: string; type: "success" | "error" }[]>([]);
   const eventSources = useRef<Record<string, EventSource>>({});
   const orchSources = useRef<Record<string, EventSource>>({});
+  const reconnectAttempts = useRef<Record<string, number>>({});
 
   // -- Load projects from registry --
   useEffect(() => {
@@ -72,11 +74,14 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  // -- SSE stream connection for agents --
+  // -- SSE stream connection for agents (with auto-reconnect) --
   const connectStream = useCallback((agentId: string) => {
     if (eventSources.current[agentId]) {
       eventSources.current[agentId].close();
     }
+
+    // Reset reconnect counter on fresh connect
+    reconnectAttempts.current[agentId] = 0;
 
     const ts = () =>
       new Date().toLocaleTimeString("en-US", {
@@ -86,37 +91,75 @@ export default function Home() {
         second: "2-digit",
       });
 
-    const es = streamAgent(
-      agentId,
-      (data) => {
-        const lines = data.split("\n").filter(Boolean);
-        setLogs((prev) => {
-          const arr = prev[agentId] || [];
-          const newEntries = lines.map((line) => ({ ts: ts(), msg: line }));
-          return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
-        });
-      },
-      (data) => {
-        const lines = data.split("\n").filter(Boolean);
-        setLogs((prev) => {
-          const arr = prev[agentId] || [];
-          const newEntries = lines.map((line) => ({ ts: ts(), msg: `\u26A0 ${line}` }));
-          return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
-        });
-      },
-      (info) => {
-        setLogs((prev) => {
-          const arr = prev[agentId] || [];
-          const statusMsg =
-            info.status === "done"
-              ? "Process exited (0) \u2713"
-              : `Process exited (${info.code}) \u2717`;
-          return { ...prev, [agentId]: [...arr, { ts: ts(), msg: statusMsg }] };
-        });
-        delete eventSources.current[agentId];
-      },
-    );
+    const createStream = () => {
+      const es = streamAgent(
+        agentId,
+        (data) => {
+          // Successful data received — reset reconnect counter
+          reconnectAttempts.current[agentId] = 0;
+          const lines = data.split("\n").filter(Boolean);
+          setLogs((prev) => {
+            const arr = prev[agentId] || [];
+            const newEntries = lines.map((line) => ({ ts: ts(), msg: line }));
+            return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
+          });
+        },
+        (data) => {
+          const lines = data.split("\n").filter(Boolean);
+          setLogs((prev) => {
+            const arr = prev[agentId] || [];
+            const newEntries = lines.map((line) => ({ ts: ts(), msg: `\u26A0 ${line}` }));
+            return { ...prev, [agentId]: [...arr.slice(-(50 - lines.length)), ...newEntries] };
+          });
+        },
+        (info) => {
+          setLogs((prev) => {
+            const arr = prev[agentId] || [];
+            const statusMsg =
+              info.status === "done"
+                ? "Process exited (0) \u2713"
+                : `Process exited (${info.code}) \u2717`;
+            return { ...prev, [agentId]: [...arr, { ts: ts(), msg: statusMsg }] };
+          });
+          delete eventSources.current[agentId];
+          delete reconnectAttempts.current[agentId];
+        },
+      );
 
+      // SSE auto-reconnect: if error fires and stream wasn't explicitly closed, retry
+      es.onerror = () => {
+        // Only reconnect if the stream is still tracked (not explicitly closed/exited)
+        if (!eventSources.current[agentId]) return;
+        const attempts = (reconnectAttempts.current[agentId] || 0) + 1;
+        reconnectAttempts.current[agentId] = attempts;
+        if (attempts <= 5) {
+          es.close();
+          setTimeout(() => {
+            // Double-check it's still wanted before reconnecting
+            if (eventSources.current[agentId]) {
+              const newEs = createStream();
+              eventSources.current[agentId] = newEs;
+            }
+          }, 3000);
+        } else {
+          // Max retries exceeded — give up
+          es.close();
+          delete eventSources.current[agentId];
+          delete reconnectAttempts.current[agentId];
+          setLogs((prev) => {
+            const arr = prev[agentId] || [];
+            return {
+              ...prev,
+              [agentId]: [...arr, { ts: ts(), msg: "\u26A0 SSE connection lost after 5 retries" }],
+            };
+          });
+        }
+      };
+
+      return es;
+    };
+
+    const es = createStream();
     eventSources.current[agentId] = es;
   }, []);
 
@@ -135,6 +178,15 @@ export default function Home() {
       Object.values(eventSources.current).forEach((es) => es.close());
       Object.values(orchSources.current).forEach((es) => es.close());
     };
+  }, []);
+
+  // -- Toast helper --
+  const addToast = useCallback((msg: string, type: "success" | "error") => {
+    const id = Math.random().toString(36).slice(2, 9);
+    setToasts((prev) => [...prev, { id, msg, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
   }, []);
 
   // -- Handlers --
@@ -169,59 +221,97 @@ export default function Home() {
 
   const handleStartOrchestration = useCallback(
     async (task: string, projectId?: string) => {
-      const result = await startOrchestration(task, projectId || "default");
-      if (result.success && result.orchestration) {
-        const orch = result.orchestration;
-        setOrchestrations((prev) => [orch, ...prev]);
-        // Connect orchestration SSE
-        const es = streamOrchestration(orch.id, (event) => {
-          if (event.type === "task_started" && event.data.agentProcessId) {
-            setTimeout(() => connectStream(event.data.agentProcessId), 500);
-          }
-          setOrchestrations((prev) =>
-            prev.map((o) => {
-              if (o.id !== orch.id) return o;
-              const updated = { ...o };
-              if (
-                event.type === "task_started" ||
-                event.type === "task_done" ||
-                event.type === "task_failed"
-              ) {
-                updated.subTasks = updated.subTasks?.map((st: any) =>
-                  st.id === event.data.subTaskId
-                    ? {
-                        ...st,
-                        status:
-                          event.type === "task_started"
-                            ? "running"
-                            : event.type === "task_done"
-                              ? "done"
-                              : "failed",
-                        agentProcessId:
-                          event.data.agentProcessId || st.agentProcessId,
-                      }
-                    : st,
-                );
-              }
-              if (event.type === "orchestration_done") {
-                updated.status = event.data.status;
-              }
-              return updated;
-            }),
-          );
-        });
-        orchSources.current[orch.id] = es;
-        return orch;
+      try {
+        const result = await startOrchestration(task, projectId || "default");
+        if (result.success && result.orchestration) {
+          const orch = result.orchestration;
+          setOrchestrations((prev) => [orch, ...prev]);
+          addToast("Orchestration started", "success");
+          // Connect orchestration SSE
+          const es = streamOrchestration(orch.id, (event) => {
+            if (event.type === "task_started" && event.data.agentProcessId) {
+              setTimeout(() => connectStream(event.data.agentProcessId), 500);
+            }
+            setOrchestrations((prev) =>
+              prev.map((o) => {
+                if (o.id !== orch.id) return o;
+                const updated = { ...o };
+                if (
+                  event.type === "task_started" ||
+                  event.type === "task_done" ||
+                  event.type === "task_failed"
+                ) {
+                  updated.subTasks = updated.subTasks?.map((st: any) =>
+                    st.id === event.data.subTaskId
+                      ? {
+                          ...st,
+                          status:
+                            event.type === "task_started"
+                              ? "running"
+                              : event.type === "task_done"
+                                ? "done"
+                                : "failed",
+                          agentProcessId:
+                            event.data.agentProcessId || st.agentProcessId,
+                        }
+                      : st,
+                  );
+                }
+                if (event.type === "orchestration_done") {
+                  updated.status = event.data.status;
+                }
+                return updated;
+              }),
+            );
+          });
+          orchSources.current[orch.id] = es;
+          return orch;
+        } else {
+          addToast("Orchestration failed", "error");
+        }
+      } catch {
+        addToast("Orchestration failed", "error");
       }
       return null;
     },
-    [connectStream],
+    [connectStream, addToast],
   );
 
   const handleSpawnAgent = useCallback(() => {
     // Navigate to orchestrations where they can spawn
     setActiveView("orchestrations");
   }, []);
+
+  const handleSpawnAgentFromProject = useCallback(
+    async (config: { role: string; name: string; prompt: string; projectId: string; cwd: string }) => {
+      const agentId = Math.random().toString(36).slice(2, 9);
+      try {
+        const res = await fetch("/api/agent/spawn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: agentId,
+            mode: "claude",
+            role: config.role,
+            name: config.name,
+            prompt: config.prompt,
+            cwd: config.cwd,
+            projectId: config.projectId,
+          }),
+        });
+        const result = await res.json();
+        if (result.success) {
+          connectStream(agentId);
+          addToast(`Agent ${config.name} spawned`, "success");
+        } else {
+          addToast(`Failed to spawn: ${result.error || "unknown error"}`, "error");
+        }
+      } catch (err: any) {
+        addToast(`Failed to spawn: ${err.message || "network error"}`, "error");
+      }
+    },
+    [connectStream, addToast],
+  );
 
   const handleRunCommand = useCallback(async (command: string, cwd: string) => {
     return runCommand(command, cwd);
@@ -432,15 +522,49 @@ export default function Home() {
           project={selectedProject}
           serverAgents={serverAgents}
           logs={logs}
-          onSpawnAgent={() => {
-            // For now, navigate to orchestrations to spawn
-            setActiveView("orchestrations");
-          }}
+          onSpawnAgent={handleSpawnAgentFromProject}
           onSendInput={handleSendInput}
           onKillAgent={handleKillAgent}
           onRunCommand={handleRunCommand}
           onBootstrap={handleBootstrap}
         />
+      )}
+
+      {/* -- Toast Notifications -- */}
+      {toasts.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            right: 20,
+            zIndex: 9999,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              style={{
+                background: "#10131e",
+                border: "1px solid #1e2338",
+                borderLeft: `3px solid ${toast.type === "success" ? "#4ade80" : "#f87171"}`,
+                borderRadius: 8,
+                padding: "10px 16px",
+                fontSize: 12,
+                color: "#e2e8f0",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                minWidth: 200,
+                maxWidth: 340,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                animation: "fadeInToast 0.2s ease-out",
+              }}
+            >
+              {toast.msg}
+            </div>
+          ))}
+        </div>
       )}
     </AppShell>
   );

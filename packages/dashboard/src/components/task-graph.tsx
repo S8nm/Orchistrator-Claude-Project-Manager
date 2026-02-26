@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import type { OrchestrationPlan, SubTask, AgentRole } from "@orchestrator/shared";
 
 const NODE_W = 180;
@@ -127,7 +127,22 @@ function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen - 1) + "\u2026" : text;
 }
 
-export default function TaskGraph({ plan }: { plan: OrchestrationPlan | null }) {
+interface TaskGraphProps {
+  plan: OrchestrationPlan | null;
+  onSelectAgent?: (agentProcessId: string) => void;
+}
+
+export default function TaskGraph({ plan, onSelectAgent }: TaskGraphProps) {
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  const handleNodeClick = useCallback((taskId: string) => {
+    setSelectedTaskId((prev) => (prev === taskId ? null : taskId));
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setSelectedTaskId(null);
+  }, []);
+
   const { positions, svgW, svgH, edges } = useMemo(() => {
     if (!plan || plan.subTasks.length === 0) {
       return { positions: [], svgW: 0, svgH: 0, edges: [] };
@@ -327,12 +342,40 @@ export default function TaskGraph({ plan }: { plan: OrchestrationPlan | null }) 
             const color = ROLE_COLORS[task.role] || "#6366f1";
             const statusClr = STATUS_COLORS[task.status] || "#374151";
             const isRunning = task.status === "running";
+            const isSelected = selectedTaskId === task.id;
             const icon = ROLE_ICONS[task.role] || "\u2699\uFE0F";
 
+            const borderColor = isSelected
+              ? color
+              : isRunning
+                ? color + "80"
+                : "#1a1a33";
+            const borderWidth = isSelected ? 2 : 1;
+
             return (
-              <g key={task.id}>
+              <g
+                key={task.id}
+                style={{ cursor: "pointer" }}
+                onClick={() => handleNodeClick(task.id)}
+              >
+                {/* Selected glow effect */}
+                {isSelected && (
+                  <rect
+                    x={x - 3}
+                    y={y - 3}
+                    width={NODE_W + 6}
+                    height={NODE_H + 6}
+                    rx={11}
+                    ry={11}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.5}
+                    opacity={0.5}
+                  />
+                )}
+
                 {/* Running glow effect */}
-                {isRunning && (
+                {isRunning && !isSelected && (
                   <rect
                     x={x - 2}
                     y={y - 2}
@@ -356,9 +399,9 @@ export default function TaskGraph({ plan }: { plan: OrchestrationPlan | null }) 
                   height={NODE_H}
                   rx={8}
                   ry={8}
-                  fill="#111122"
-                  stroke={isRunning ? color + "80" : "#1a1a33"}
-                  strokeWidth={1}
+                  fill={isSelected ? "#161630" : "#111122"}
+                  stroke={borderColor}
+                  strokeWidth={borderWidth}
                 />
 
                 {/* Top accent line */}
@@ -485,6 +528,302 @@ export default function TaskGraph({ plan }: { plan: OrchestrationPlan | null }) 
           })}
         </svg>
       </div>
+
+      {/* Details panel for selected task */}
+      {selectedTaskId && (() => {
+        const task = plan.subTasks.find((t: SubTask) => t.id === selectedTaskId);
+        if (!task) return null;
+
+        const roleColor = ROLE_COLORS[task.role] || "#6366f1";
+        const roleIcon = ROLE_ICONS[task.role] || "\u2699\uFE0F";
+        const statusClr = STATUS_COLORS[task.status] || "#374151";
+        const taskMap = new Map<string, SubTask>();
+        for (const t of plan.subTasks) {
+          taskMap.set(t.id, t);
+        }
+        const depTitles = task.deps
+          .map((depId) => taskMap.get(depId))
+          .filter(Boolean)
+          .map((dep) => dep!.title);
+
+        return (
+          <div
+            style={{
+              borderTop: "1px solid #1a1a33",
+              padding: "16px 20px",
+              background: "#0a0a16",
+              color: "#e2e8f0",
+              fontSize: 12,
+              lineHeight: 1.6,
+            }}
+          >
+            {/* Header row */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>{roleIcon}</span>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#e2e8f0",
+                  }}
+                >
+                  {task.title}
+                </span>
+                <span
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 10,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    background: roleColor + "18",
+                    color: roleColor,
+                    border: `1px solid ${roleColor}30`,
+                  }}
+                >
+                  {task.role}
+                </span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "2px 8px",
+                    borderRadius: 10,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    background: statusClr + "18",
+                    color: statusClr,
+                    border: `1px solid ${statusClr}30`,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: statusClr,
+                      display: "inline-block",
+                    }}
+                  />
+                  {task.status}
+                </span>
+                {task.retryCount > 0 && (
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 10,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      background: "#ef444418",
+                      color: "#ef4444",
+                      border: "1px solid #ef444430",
+                    }}
+                  >
+                    Retries: {task.retryCount}/{task.maxRetries}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleClose}
+                style={{
+                  background: "#1a1a33",
+                  border: "1px solid #2a2a44",
+                  borderRadius: 6,
+                  color: "#94a3b8",
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  fontWeight: 500,
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Prompt */}
+            <div style={{ marginBottom: 10 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "#94a3b8",
+                  textTransform: "uppercase" as const,
+                  letterSpacing: "0.05em",
+                  marginBottom: 4,
+                }}
+              >
+                Prompt
+              </div>
+              <div
+                style={{
+                  maxHeight: 200,
+                  overflowY: "auto",
+                  background: "#08080f",
+                  border: "1px solid #1a1a33",
+                  borderRadius: 6,
+                  padding: "10px 12px",
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+                  fontSize: 11,
+                  color: "#c4c9d4",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: 1.5,
+                }}
+              >
+                {task.prompt || "(no prompt)"}
+              </div>
+            </div>
+
+            {/* Output */}
+            {task.output && (
+              <div style={{ marginBottom: 10 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "#94a3b8",
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.05em",
+                    marginBottom: 4,
+                  }}
+                >
+                  Output (last 500 chars)
+                </div>
+                <div
+                  style={{
+                    maxHeight: 160,
+                    overflowY: "auto",
+                    background: "#08080f",
+                    border: "1px solid #1a1a33",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+                    fontSize: 11,
+                    color: "#a3e635",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {task.output.length > 500
+                    ? "\u2026" + task.output.slice(-500)
+                    : task.output}
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {task.error && (
+              <div style={{ marginBottom: 10 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "#ef4444",
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.05em",
+                    marginBottom: 4,
+                  }}
+                >
+                  Error
+                </div>
+                <div
+                  style={{
+                    maxHeight: 120,
+                    overflowY: "auto",
+                    background: "#0f0808",
+                    border: "1px solid #3a1a1a",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+                    fontSize: 11,
+                    color: "#ef4444",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {task.error}
+                </div>
+              </div>
+            )}
+
+            {/* Metadata row */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 16,
+                fontSize: 11,
+                color: "#94a3b8",
+                marginBottom: task.agentProcessId && onSelectAgent ? 10 : 0,
+              }}
+            >
+              {task.agentProcessId && (
+                <span>
+                  Agent PID:{" "}
+                  <span
+                    style={{
+                      color: "#e2e8f0",
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+                    }}
+                  >
+                    {task.agentProcessId}
+                  </span>
+                </span>
+              )}
+              {depTitles.length > 0 && (
+                <span>
+                  Dependencies:{" "}
+                  {depTitles.map((title, i) => (
+                    <span key={i}>
+                      {i > 0 && ", "}
+                      <span
+                        style={{
+                          color: "#8b5cf6",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {title}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+
+            {/* View Agent Logs button */}
+            {task.agentProcessId && onSelectAgent && (
+              <button
+                onClick={() => onSelectAgent(task.agentProcessId!)}
+                style={{
+                  background: roleColor + "18",
+                  border: `1px solid ${roleColor}40`,
+                  borderRadius: 6,
+                  color: roleColor,
+                  padding: "6px 14px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                View Agent Logs
+              </button>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
