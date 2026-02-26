@@ -2,35 +2,48 @@
 
 import { useState, useCallback, useMemo, memo } from "react";
 
-// -- Theme constants ----------------------------------------------------------
+// -- Design System ------------------------------------------------------------
 
-const COLORS = {
-  bg: "#080810",
-  panel: "#0d0d1a",
-  card: "#111122",
-  border: "#1a1a33",
-  borderLight: "#252545",
-  primary: "#6366f1",
-  primaryMuted: "rgba(99, 102, 241, 0.12)",
-  primaryGlow: "rgba(99, 102, 241, 0.25)",
-  success: "#10b981",
-  warning: "#f59e0b",
-  error: "#ef4444",
-  textPrimary: "#e2e8f0",
-  textSecondary: "#94a3b8",
-  textMuted: "#64748b",
+const T = {
+  // Backgrounds
+  base: "#050508",
+  surface1: "#0a0c14",
+  surface2: "#10131e",
+  surface3: "#181c2e",
+  // Borders
+  border: "#1e2338",
+  borderHover: "#2a3050",
+  // Accent colors
+  primary: "#00d4aa",
+  primaryMuted: "rgba(0, 212, 170, 0.12)",
+  primaryGlow: "rgba(0, 212, 170, 0.3)",
+  secondary: "#5b6cf7",
+  secondaryMuted: "rgba(91, 108, 247, 0.12)",
+  warm: "#ff8b3e",
+  warmMuted: "rgba(255, 139, 62, 0.12)",
+  danger: "#f87171",
+  dangerMuted: "rgba(248, 113, 113, 0.12)",
+  success: "#4ade80",
+  // Text
+  textPrimary: "#e8ecf4",
+  textSecondary: "#7b839a",
+  textMuted: "#454d68",
+  // Status
+  statusActive: "#00d4aa",
+  statusPaused: "#ff8b3e",
+  statusArchived: "#454d68",
 } as const;
 
+const FONT = "'Outfit', sans-serif";
+const MONO = "'JetBrains Mono', monospace";
+
+const SIDEBAR_WIDTH = 260;
+
 const STATUS_COLORS: Record<string, string> = {
-  active: COLORS.success,
-  paused: "#eab308",
-  archived: "#6b7280",
+  active: T.statusActive,
+  paused: T.statusPaused,
+  archived: T.statusArchived,
 };
-
-const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const MONO_STACK = "'SF Mono', Monaco, 'Fira Code', monospace";
-
-const SIDEBAR_WIDTH = 240;
 
 // -- Types --------------------------------------------------------------------
 
@@ -46,7 +59,16 @@ interface Project {
 }
 
 interface AppShellProps {
-  projects: Project[];
+  projects: Array<{
+    id: string;
+    name: string;
+    path: string;
+    type: string;
+    stack: string[];
+    status: string;
+    tags: string[];
+    remote?: string;
+  }>;
   activeView: string;
   onNavigate: (view: string) => void;
   serverAgents: any[];
@@ -59,6 +81,7 @@ interface NavItem {
   id: string;
   label: string;
   icon: string;
+  count?: number;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -67,23 +90,47 @@ const NAV_ITEMS: NavItem[] = [
   { id: "presets", label: "Presets", icon: "\u{1F3AD}" },
 ];
 
-// -- View title mapping -------------------------------------------------------
+// -- Injected styles ----------------------------------------------------------
 
-function getViewTitle(activeView: string, projects: Project[]): string {
-  const nav = NAV_ITEMS.find((n) => n.id === activeView);
-  if (nav) return nav.label;
-  const proj = projects.find((p) => p.id === activeView);
-  if (proj) return proj.name;
-  return "Dashboard";
-}
+const INJECTED_STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
-function getBreadcrumb(activeView: string, projects: Project[]): string[] {
-  const nav = NAV_ITEMS.find((n) => n.id === activeView);
-  if (nav) return ["Orchestrator", nav.label];
-  const proj = projects.find((p) => p.id === activeView);
-  if (proj) return ["Orchestrator", "Projects", proj.name];
-  return ["Orchestrator"];
-}
+  @keyframes pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.5);
+      opacity: 0.4;
+    }
+  }
+
+  @keyframes accentShimmer {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
+  }
+
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 4px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: ${T.surface3};
+    border-radius: 2px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background: ${T.textMuted};
+  }
+
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: ${T.surface3} transparent;
+  }
+`;
 
 // -- Memoized sub-components --------------------------------------------------
 
@@ -102,24 +149,32 @@ const NavButton = memo(function NavButton({
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "8px 12px",
-    margin: "1px 8px",
+    height: 36,
+    padding: "0 14px",
+    margin: "2px 10px",
     borderRadius: 6,
     border: "none",
-    borderLeft: isActive ? `3px solid ${COLORS.primary}` : "3px solid transparent",
+    borderLeft: isActive
+      ? `2px solid ${T.primary}`
+      : "2px solid transparent",
     background: isActive
-      ? COLORS.primaryMuted
+      ? T.primaryMuted
       : hovered
-        ? "rgba(255, 255, 255, 0.04)"
+        ? T.surface3
         : "transparent",
-    color: isActive ? COLORS.textPrimary : COLORS.textSecondary,
+    color: isActive
+      ? T.primary
+      : hovered
+        ? T.textPrimary
+        : T.textSecondary,
     cursor: "pointer",
     fontSize: 13,
-    fontFamily: FONT_STACK,
-    fontWeight: isActive ? 600 : 400,
+    fontFamily: FONT,
+    fontWeight: isActive ? 500 : 400,
     textAlign: "left" as const,
-    width: "calc(100% - 16px)",
-    transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+    width: "calc(100% - 20px)",
+    transition: "all 0.2s ease",
+    outline: "none",
   };
 
   return (
@@ -129,8 +184,36 @@ const NavButton = memo(function NavButton({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <span style={{ fontSize: 15, width: 20, textAlign: "center" }}>{item.icon}</span>
-      <span>{item.label}</span>
+      <span
+        style={{
+          fontSize: 16,
+          width: 20,
+          textAlign: "center",
+          lineHeight: 1,
+          filter: isActive ? "saturate(1.3)" : "saturate(0.7)",
+          transition: "filter 0.2s ease",
+        }}
+      >
+        {item.icon}
+      </span>
+      <span style={{ flex: 1 }}>{item.label}</span>
+      {item.count !== undefined && item.count > 0 && (
+        <span
+          style={{
+            fontSize: 10,
+            fontFamily: MONO,
+            fontWeight: 600,
+            color: T.textMuted,
+            background: "rgba(255, 255, 255, 0.06)",
+            padding: "1px 6px",
+            borderRadius: 8,
+            minWidth: 18,
+            textAlign: "center",
+          }}
+        >
+          {item.count}
+        </span>
+      )}
     </button>
   );
 });
@@ -145,31 +228,36 @@ const ProjectItem = memo(function ProjectItem({
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const statusColor = STATUS_COLORS[project.status] || COLORS.textMuted;
+  const statusColor = STATUS_COLORS[project.status] || T.textMuted;
   const primaryStack = project.stack.length > 0 ? project.stack[0] : project.type;
 
   const style: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     gap: 8,
-    padding: "6px 12px",
-    margin: "1px 8px",
-    borderRadius: 6,
+    height: 32,
+    padding: "0 14px",
+    margin: "1px 10px",
+    borderRadius: 5,
     border: "none",
-    borderLeft: isActive ? `3px solid ${COLORS.primary}` : "3px solid transparent",
     background: isActive
-      ? COLORS.primaryMuted
+      ? T.primaryMuted
       : hovered
-        ? "rgba(255, 255, 255, 0.04)"
+        ? T.surface2
         : "transparent",
-    color: isActive ? COLORS.textPrimary : COLORS.textSecondary,
+    color: isActive
+      ? T.primary
+      : hovered
+        ? T.textPrimary
+        : T.textSecondary,
     cursor: "pointer",
     fontSize: 12,
-    fontFamily: FONT_STACK,
+    fontFamily: FONT,
     fontWeight: isActive ? 500 : 400,
     textAlign: "left" as const,
-    width: "calc(100% - 16px)",
-    transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+    width: "calc(100% - 20px)",
+    transition: "all 0.2s ease",
+    outline: "none",
   };
 
   return (
@@ -179,16 +267,21 @@ const ProjectItem = memo(function ProjectItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {/* Status dot */}
       <span
         style={{
-          width: 7,
-          height: 7,
+          width: 6,
+          height: 6,
           borderRadius: "50%",
           background: statusColor,
           flexShrink: 0,
-          boxShadow: `0 0 4px ${statusColor}40`,
+          boxShadow: project.status === "active"
+            ? `0 0 6px ${statusColor}60`
+            : "none",
+          transition: "box-shadow 0.2s ease",
         }}
       />
+      {/* Name */}
       <span
         style={{
           flex: 1,
@@ -199,19 +292,25 @@ const ProjectItem = memo(function ProjectItem({
       >
         {project.name}
       </span>
+      {/* Stack tag pill */}
       <span
         style={{
-          fontSize: 10,
-          fontFamily: MONO_STACK,
-          color: COLORS.textMuted,
-          background: "rgba(255, 255, 255, 0.05)",
-          padding: "1px 5px",
+          fontSize: 9,
+          fontFamily: MONO,
+          fontWeight: 500,
+          color: T.textMuted,
+          background: isActive
+            ? "rgba(0, 212, 170, 0.08)"
+            : "rgba(255, 255, 255, 0.04)",
+          padding: "2px 6px",
           borderRadius: 3,
           flexShrink: 0,
           maxWidth: 70,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          letterSpacing: "0.02em",
+          transition: "background 0.2s ease",
         }}
       >
         {primaryStack}
@@ -229,18 +328,15 @@ export default function AppShell({
   serverAgents,
   children,
 }: AppShellProps) {
-  const runningAgentCount = useMemo(
+  const activeCount = useMemo(
     () => serverAgents.filter((a) => a.status === "running" || a.status === "active").length,
     [serverAgents],
   );
 
-  const activeProjectCount = useMemo(
-    () => projects.filter((p) => p.status === "active").length,
+  const projectCount = useMemo(
+    () => projects.length,
     [projects],
   );
-
-  const viewTitle = useMemo(() => getViewTitle(activeView, projects), [activeView, projects]);
-  const breadcrumb = useMemo(() => getBreadcrumb(activeView, projects), [activeView, projects]);
 
   const handleNavClick = useCallback(
     (id: string) => {
@@ -256,125 +352,123 @@ export default function AppShell({
     [onNavigate],
   );
 
-  // ---------- Styles ----------
-
-  const rootStyle: React.CSSProperties = {
-    display: "flex",
-    height: "100vh",
-    width: "100vw",
-    overflow: "hidden",
-    background: COLORS.bg,
-    fontFamily: FONT_STACK,
-    color: COLORS.textPrimary,
-  };
-
-  const sidebarStyle: React.CSSProperties = {
-    width: SIDEBAR_WIDTH,
-    minWidth: SIDEBAR_WIDTH,
-    height: "100vh",
-    display: "flex",
-    flexDirection: "column",
-    background: COLORS.panel,
-    borderRight: `1px solid ${COLORS.border}`,
-    overflow: "hidden",
-  };
-
-  const logoStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "16px 16px 12px",
-    borderBottom: `1px solid ${COLORS.border}`,
-    flexShrink: 0,
-  };
-
-  const navSectionStyle: React.CSSProperties = {
-    padding: "8px 0",
-    flexShrink: 0,
-  };
-
-  const dividerStyle: React.CSSProperties = {
-    height: 1,
-    background: COLORS.border,
-    margin: "4px 16px",
-    flexShrink: 0,
-  };
-
-  const projectsHeaderStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "10px 16px 4px",
-    flexShrink: 0,
-  };
-
-  const projectsListStyle: React.CSSProperties = {
-    flex: 1,
-    overflowY: "auto",
-    overflowX: "hidden",
-    padding: "2px 0",
-    scrollbarWidth: "thin" as any,
-    scrollbarColor: `${COLORS.borderLight} transparent`,
-  };
-
-  const statsBarStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-around",
-    padding: "10px 12px",
-    borderTop: `1px solid ${COLORS.border}`,
-    flexShrink: 0,
-    background: "rgba(0, 0, 0, 0.2)",
-  };
-
-  const mainStyle: React.CSSProperties = {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    minWidth: 0,
-  };
-
-  const topBarStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 24px",
-    borderBottom: `1px solid ${COLORS.border}`,
-    background: COLORS.panel,
-    flexShrink: 0,
-    minHeight: 52,
-  };
-
-  const contentStyle: React.CSSProperties = {
-    flex: 1,
-    overflow: "auto",
-    background: COLORS.bg,
-  };
-
   // ---------- Render ----------
 
   return (
-    <div style={rootStyle}>
-      {/* Sidebar */}
-      <aside style={sidebarStyle}>
-        {/* Logo */}
-        <div style={logoStyle}>
-          <span style={{ fontSize: 18 }}>{"\u26A1"}</span>
+    <>
+      <style>{INJECTED_STYLES}</style>
+
+      {/* Fixed sidebar */}
+      <aside
+        style={{
+          position: "fixed",
+          left: 0,
+          top: 0,
+          width: SIDEBAR_WIDTH,
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          // Subtle vertical gradient, slightly lighter at top
+          background: `linear-gradient(180deg, ${T.surface1} 0%, rgba(8, 10, 16, 1) 100%)`,
+          borderRight: `1px solid ${T.border}`,
+          overflow: "hidden",
+          zIndex: 100,
+          fontFamily: FONT,
+        }}
+      >
+        {/* Left edge accent gradient line */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: 2,
+            height: "100%",
+            background: `linear-gradient(180deg, ${T.primary} 0%, ${T.secondary} 100%)`,
+            zIndex: 1,
+            animation: "accentShimmer 4s ease-in-out infinite",
+          }}
+        />
+
+        {/* Subtle noise texture overlay (CSS-only repeating gradient trick) */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: 0.03,
+            background: [
+              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px)",
+              "repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255,255,255,0.02) 2px, rgba(255,255,255,0.02) 4px)",
+            ].join(", "),
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+
+        {/* Logo area */}
+        <div
+          style={{
+            height: 60,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "0 18px",
+            flexShrink: 0,
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Teal diamond accent */}
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                background: T.primary,
+                transform: "rotate(45deg)",
+                borderRadius: 1.5,
+                boxShadow: `0 0 10px ${T.primaryGlow}, 0 0 20px ${T.primaryMuted}`,
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: 3,
+                textTransform: "uppercase",
+                color: T.primary,
+                lineHeight: 1,
+              }}
+            >
+              ORCHESTRATOR
+            </span>
+          </div>
           <span
             style={{
-              fontSize: 14,
-              fontWeight: 700,
-              letterSpacing: "-0.01em",
-              color: COLORS.textPrimary,
+              fontFamily: MONO,
+              fontSize: 9,
+              color: T.textMuted,
+              marginTop: 4,
+              marginLeft: 16,
+              letterSpacing: "0.03em",
             }}
           >
-            Agent Orchestrator
+            v2.0 — mission control
           </span>
         </div>
 
-        {/* Nav items */}
-        <nav style={navSectionStyle}>
+        {/* Navigation items */}
+        <nav
+          style={{
+            padding: "6px 0",
+            flexShrink: 0,
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
           {NAV_ITEMS.map((item) => (
             <NavButton
               key={item.id}
@@ -385,42 +479,62 @@ export default function AppShell({
           ))}
         </nav>
 
-        {/* Divider */}
-        <div style={dividerStyle} />
-
-        {/* Projects header */}
-        <div style={projectsHeaderStyle}>
+        {/* Divider with PROJECTS label */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 2,
+            margin: "16px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              height: 1,
+              background: T.border,
+            }}
+          />
           <span
             style={{
-              fontSize: 10,
-              fontWeight: 600,
+              fontFamily: MONO,
+              fontSize: 9,
+              fontWeight: 500,
               textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              color: COLORS.textMuted,
+              letterSpacing: 2,
+              color: T.textMuted,
+              flexShrink: 0,
             }}
           >
-            {"\u{1F4C2}"} Projects
+            PROJECTS
           </span>
-          <span
+          <div
             style={{
-              fontSize: 10,
-              fontFamily: MONO_STACK,
-              color: COLORS.textMuted,
-              background: "rgba(255, 255, 255, 0.05)",
-              padding: "1px 6px",
-              borderRadius: 8,
+              flex: 1,
+              height: 1,
+              background: T.border,
             }}
-          >
-            {projects.length}
-          </span>
+          />
         </div>
 
-        {/* Projects list */}
-        <div style={projectsListStyle}>
+        {/* Projects list (scrollable) */}
+        <div
+          className="sidebar-scroll"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+            padding: "2px 0",
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
           {projects.map((project) => (
             <ProjectItem
               key={project.id}
-              project={project}
+              project={project as Project}
               isActive={activeView === project.id}
               onClick={() => handleProjectClick(project.id)}
             />
@@ -428,10 +542,12 @@ export default function AppShell({
           {projects.length === 0 && (
             <div
               style={{
-                padding: "16px",
+                padding: "24px 18px",
                 textAlign: "center",
-                color: COLORS.textMuted,
-                fontSize: 12,
+                color: T.textMuted,
+                fontSize: 11,
+                fontFamily: MONO,
+                letterSpacing: "0.02em",
               }}
             >
               No projects registered
@@ -439,164 +555,96 @@ export default function AppShell({
           )}
         </div>
 
-        {/* Stats bar */}
-        <div style={statsBarStyle}>
-          <StatBadge
-            icon={"\u26A1"}
-            value={runningAgentCount}
-            label="agents"
-            color={runningAgentCount > 0 ? COLORS.success : COLORS.textMuted}
-          />
-          <div
-            style={{
-              width: 1,
-              height: 16,
-              background: COLORS.border,
-            }}
-          />
-          <StatBadge
-            icon={"\u{1F4C2}"}
-            value={activeProjectCount}
-            label="active"
-            color={activeProjectCount > 0 ? COLORS.primary : COLORS.textMuted}
-          />
-        </div>
-      </aside>
-
-      {/* Main content */}
-      <main style={mainStyle}>
-        {/* Top bar */}
-        <header style={topBarStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            <h1
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                margin: 0,
-                color: COLORS.textPrimary,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {viewTitle}
-            </h1>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                fontSize: 12,
-                color: COLORS.textMuted,
-              }}
-            >
-              {breadcrumb.map((segment, i) => (
-                <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {i > 0 && (
-                    <span style={{ color: COLORS.borderLight, fontSize: 10 }}>/</span>
-                  )}
-                  <span
-                    style={{
-                      color: i === breadcrumb.length - 1 ? COLORS.textSecondary : COLORS.textMuted,
-                    }}
-                  >
-                    {segment}
-                  </span>
-                </span>
-              ))}
-            </div>
-          </div>
+        {/* Bottom stats bar */}
+        <div
+          style={{
+            height: 48,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 20,
+            borderTop: `1px solid ${T.border}`,
+            background: T.surface1,
+            flexShrink: 0,
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
+          {/* Active agents */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              flexShrink: 0,
+              gap: 6,
+              fontFamily: MONO,
+              fontSize: 10,
             }}
           >
-            {/* Action buttons area -- consumers can place buttons in children or extend */}
-            {runningAgentCount > 0 && (
-              <span
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 11,
-                  fontFamily: MONO_STACK,
-                  color: COLORS.success,
-                  background: "rgba(16, 185, 129, 0.1)",
-                  padding: "4px 10px",
-                  borderRadius: 12,
-                  border: `1px solid rgba(16, 185, 129, 0.2)`,
-                }}
-              >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: COLORS.success,
-                    animation: "pulse 2s ease-in-out infinite",
-                  }}
-                />
-                {runningAgentCount} running
-              </span>
-            )}
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: activeCount > 0 ? T.success : T.textMuted,
+                animation: activeCount > 0 ? "pulse 2s ease-in-out infinite" : "none",
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                color: activeCount > 0 ? T.success : T.textMuted,
+                fontWeight: 600,
+              }}
+            >
+              {activeCount}
+            </span>
+            <span style={{ color: T.textMuted }}>active</span>
           </div>
-        </header>
 
-        {/* Content area */}
-        <div style={contentStyle}>{children}</div>
+          {/* Separator */}
+          <div
+            style={{
+              width: 1,
+              height: 14,
+              background: T.border,
+            }}
+          />
+
+          {/* Total projects */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: MONO,
+              fontSize: 10,
+            }}
+          >
+            <span
+              style={{
+                color: T.textSecondary,
+                fontWeight: 600,
+              }}
+            >
+              {projectCount}
+            </span>
+            <span style={{ color: T.textMuted }}>projects</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content area */}
+      <main
+        style={{
+          marginLeft: SIDEBAR_WIDTH,
+          minHeight: "100vh",
+          background: T.base,
+          fontFamily: FONT,
+          color: T.textPrimary,
+        }}
+      >
+        {children}
       </main>
-
-      {/* Pulse animation keyframes */}
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-        aside::-webkit-scrollbar {
-          width: 4px;
-        }
-        aside::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        aside::-webkit-scrollbar-thumb {
-          background: ${COLORS.borderLight};
-          border-radius: 2px;
-        }
-        aside::-webkit-scrollbar-thumb:hover {
-          background: ${COLORS.textMuted};
-        }
-      `}</style>
-    </div>
-  );
-}
-
-// -- Small helper component ---------------------------------------------------
-
-function StatBadge({
-  icon,
-  value,
-  label,
-  color,
-}: {
-  icon: string;
-  value: number;
-  label: string;
-  color: string;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        fontSize: 11,
-        color: COLORS.textSecondary,
-      }}
-    >
-      <span style={{ fontSize: 12 }}>{icon}</span>
-      <span style={{ fontFamily: MONO_STACK, fontWeight: 600, color }}>{value}</span>
-      <span style={{ color: COLORS.textMuted }}>{label}</span>
-    </div>
+    </>
   );
 }

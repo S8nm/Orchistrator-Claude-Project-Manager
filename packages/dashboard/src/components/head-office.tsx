@@ -2,29 +2,37 @@
 
 import { useState, useEffect, useCallback, useMemo, memo } from "react";
 
-// -- Theme constants ----------------------------------------------------------
+// -- Design System ------------------------------------------------------------
 
-const COLORS = {
-  bg: "#080810",
-  panel: "#0d0d1a",
-  card: "#111122",
-  border: "#1a1a33",
-  borderLight: "#252545",
-  primary: "#6366f1",
-  primaryMuted: "rgba(99, 102, 241, 0.12)",
-  primaryGlow: "rgba(99, 102, 241, 0.25)",
-  success: "#10b981",
-  warning: "#f59e0b",
-  error: "#ef4444",
-  textPrimary: "#e2e8f0",
-  textSecondary: "#94a3b8",
-  textMuted: "#64748b",
+const T = {
+  base: "#050508",
+  surface1: "#0a0c14",
+  surface2: "#10131e",
+  surface3: "#181c2e",
+  border: "#1e2338",
+  borderHover: "#2a3050",
+  primary: "#00d4aa",
+  primaryMuted: "rgba(0, 212, 170, 0.12)",
+  primaryGlow: "rgba(0, 212, 170, 0.3)",
+  secondary: "#5b6cf7",
+  secondaryMuted: "rgba(91, 108, 247, 0.12)",
+  warm: "#ff8b3e",
+  warmMuted: "rgba(255, 139, 62, 0.12)",
+  danger: "#f87171",
+  dangerMuted: "rgba(248, 113, 113, 0.12)",
+  success: "#4ade80",
+  textPrimary: "#e8ecf4",
+  textSecondary: "#7b839a",
+  textMuted: "#454d68",
+  statusActive: "#00d4aa",
+  statusPaused: "#ff8b3e",
+  statusArchived: "#454d68",
 } as const;
 
-const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const MONO_STACK = "'SF Mono', Monaco, 'Fira Code', monospace";
+const FONT = "'Outfit', sans-serif";
+const MONO = "'JetBrains Mono', monospace";
 
-// -- Role config --------------------------------------------------------------
+// -- Role Config --------------------------------------------------------------
 
 const ROLE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
   orchestrator: { icon: "\u{1F9E0}", color: "#a855f7", label: "Orchestrator" },
@@ -42,9 +50,10 @@ const ROLE_CONFIG: Record<string, { icon: string; color: string; label: string }
 
 const ORCH_STATUS_COLORS: Record<string, string> = {
   running: "#3b82f6",
-  done: "#10b981",
-  failed: "#ef4444",
-  cancelled: "#6b7280",
+  done: T.success,
+  completed: T.success,
+  failed: T.danger,
+  cancelled: T.textMuted,
 };
 
 // -- Types --------------------------------------------------------------------
@@ -65,13 +74,17 @@ interface HeadOfficeProps {
 function formatUptime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 function formatElapsed(startTime: number | string | undefined): string {
   if (!startTime) return "--";
   const start = typeof startTime === "string" ? new Date(startTime).getTime() : startTime;
   const elapsed = Math.floor((Date.now() - start) / 1000);
+  if (elapsed < 0) return "--";
   if (elapsed < 60) return `${elapsed}s`;
   if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
   return `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
@@ -84,22 +97,76 @@ function truncate(str: string, max: number): string {
 
 function getRoleConfig(role: string): { icon: string; color: string; label: string } {
   const key = (role || "").toLowerCase();
-  return ROLE_CONFIG[key] || { icon: "\u{1F916}", color: "#6366f1", label: role || "Agent" };
+  return ROLE_CONFIG[key] || { icon: "\u{1F916}", color: T.secondary, label: role || "Agent" };
+}
+
+// -- Style Injection ----------------------------------------------------------
+
+let stylesInjected = false;
+
+function injectStyles() {
+  if (stylesInjected) return;
+  if (typeof document === "undefined") return;
+  stylesInjected = true;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    @keyframes ho-fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes ho-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    @keyframes ho-glow-pulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(0, 212, 170, 0.4); }
+      50% { box-shadow: 0 0 10px rgba(0, 212, 170, 0.7); }
+    }
+
+    @keyframes ho-shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .ho-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .ho-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .ho-scrollbar::-webkit-scrollbar-thumb {
+      background: ${T.border};
+      border-radius: 2px;
+    }
+    .ho-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: ${T.borderHover};
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 // -- Stat Card ----------------------------------------------------------------
 
-const StatCard = memo(function StatCard({
-  label,
-  value,
-  color,
-  icon,
-}: {
+interface StatCardProps {
   label: string;
   value: string | number;
   color: string;
-  icon: string;
-}) {
+  delay: number;
+}
+
+const StatCard = memo(function StatCard({ label, value, color, delay }: StatCardProps) {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -108,40 +175,46 @@ const StatCard = memo(function StatCard({
       onMouseLeave={() => setHovered(false)}
       style={{
         flex: "1 1 0",
-        minWidth: 140,
-        background: hovered ? COLORS.borderLight : COLORS.card,
-        border: `1px solid ${hovered ? color + "44" : COLORS.border}`,
-        borderRadius: 10,
-        padding: "18px 16px",
+        minWidth: 120,
+        height: 80,
+        background: T.surface2,
+        borderRadius: 8,
+        padding: "14px 16px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
+        justifyContent: "center",
         gap: 6,
-        transition: "all 0.2s ease",
         cursor: "default",
-        boxShadow: hovered ? `0 0 20px ${color}15` : "none",
+        position: "relative",
+        overflow: "hidden",
+        transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        animation: `ho-fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${delay}ms both`,
+        borderBottom: hovered ? `2px solid ${color}` : "2px solid transparent",
+        boxShadow: hovered ? `0 4px 20px ${color}15` : "none",
       }}
     >
-      <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
       <span
         style={{
           fontSize: 28,
           fontWeight: 700,
-          fontFamily: MONO_STACK,
-          color,
-          lineHeight: 1.1,
+          fontFamily: MONO,
+          color: color,
+          lineHeight: 1,
+          letterSpacing: "-0.02em",
         }}
       >
         {value}
       </span>
       <span
         style={{
-          fontSize: 11,
-          fontFamily: FONT_STACK,
-          color: COLORS.textMuted,
+          fontSize: 10,
+          fontFamily: MONO,
+          color: T.textMuted,
           textTransform: "uppercase",
-          letterSpacing: "0.05em",
+          letterSpacing: "0.1em",
           fontWeight: 500,
+          lineHeight: 1,
         }}
       >
         {label}
@@ -161,7 +234,8 @@ const AgentCard = memo(function AgentCard({
 }) {
   const [hovered, setHovered] = useState(false);
   const config = getRoleConfig(agent.role || agent.type);
-  const isRunning = (agent.status || "").toLowerCase() === "running";
+  const status = (agent.status || "idle").toLowerCase();
+  const isRunning = status === "running";
 
   return (
     <div
@@ -169,75 +243,92 @@ const AgentCard = memo(function AgentCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: hovered ? COLORS.borderLight : COLORS.card,
-        border: `1px solid ${hovered ? config.color + "66" : COLORS.border}`,
+        background: T.surface2,
+        border: `1px solid ${hovered ? T.borderHover : T.border}`,
+        borderLeft: isRunning ? `2px solid ${config.color}` : `1px solid ${hovered ? T.borderHover : T.border}`,
         borderRadius: 8,
-        padding: "12px 14px",
+        padding: "14px 16px",
         display: "flex",
-        alignItems: "center",
+        flexDirection: "column",
         gap: 10,
         cursor: "pointer",
-        transition: "all 0.2s ease",
+        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+        transform: hovered ? "translateY(-1px)" : "translateY(0)",
         boxShadow: isRunning
-          ? `0 0 16px ${config.color}30, inset 0 0 8px ${config.color}08`
-          : "none",
+          ? `0 0 20px ${config.color}18, 0 2px 8px rgba(0,0,0,0.3)`
+          : hovered
+            ? "0 2px 12px rgba(0,0,0,0.3)"
+            : "none",
       }}
     >
-      <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{config.icon}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: FONT_STACK,
-            color: COLORS.textPrimary,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {agent.name || agent.id}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            fontFamily: FONT_STACK,
-            color: COLORS.textMuted,
-            marginTop: 2,
-          }}
-        >
-          {config.label}
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+      {/* Top row: icon + name + role */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
+          {config.icon}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              width: 7,
-              height: 7,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: FONT,
+              color: T.textPrimary,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              lineHeight: 1.2,
+            }}
+          >
+            {agent.name || agent.id}
+          </div>
+          <div
+            style={{
+              fontSize: 9,
+              fontFamily: MONO,
+              fontWeight: 500,
+              color: config.color,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              marginTop: 2,
+              lineHeight: 1,
+            }}
+          >
+            {config.label}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row: status + elapsed */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div
+            style={{
+              width: 6,
+              height: 6,
               borderRadius: "50%",
-              background: isRunning ? COLORS.success : COLORS.textMuted,
-              boxShadow: isRunning ? `0 0 6px ${COLORS.success}` : "none",
-              animation: isRunning ? "pulse 2s ease-in-out infinite" : "none",
+              background: isRunning ? T.statusActive : T.textMuted,
+              boxShadow: isRunning ? `0 0 8px ${T.statusActive}` : "none",
+              animation: isRunning ? "ho-pulse 2s ease-in-out infinite" : "none",
+              flexShrink: 0,
             }}
           />
           <span
             style={{
               fontSize: 10,
-              fontFamily: MONO_STACK,
-              color: isRunning ? COLORS.success : COLORS.textMuted,
-              textTransform: "uppercase",
+              fontFamily: MONO,
+              color: isRunning ? T.statusActive : T.textMuted,
+              textTransform: "capitalize",
               fontWeight: 500,
             }}
           >
-            {agent.status || "idle"}
+            {status}
           </span>
         </div>
         <span
           style={{
             fontSize: 10,
-            fontFamily: MONO_STACK,
-            color: COLORS.textMuted,
+            fontFamily: MONO,
+            color: T.textMuted,
           }}
         >
           {formatElapsed(agent.startedAt || agent.created)}
@@ -258,10 +349,12 @@ const OrchestrationRow = memo(function OrchestrationRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const status = (orch.status || "running").toLowerCase();
-  const statusColor = ORCH_STATUS_COLORS[status] || COLORS.textMuted;
+  const statusColor = ORCH_STATUS_COLORS[status] || T.textMuted;
 
   const subTasks = orch.subTasks || orch.tasks || [];
-  const doneTasks = subTasks.filter((t: any) => t.status === "done" || t.status === "completed").length;
+  const doneTasks = subTasks.filter(
+    (t: any) => t.status === "done" || t.status === "completed"
+  ).length;
   const totalTasks = subTasks.length;
 
   return (
@@ -270,167 +363,89 @@ const OrchestrationRow = memo(function OrchestrationRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 14px",
+        background: hovered ? T.surface3 : T.surface2,
+        padding: 12,
         borderRadius: 6,
-        background: hovered ? COLORS.card : "transparent",
+        marginBottom: 6,
         cursor: "pointer",
         transition: "background 0.15s ease",
-        borderBottom: `1px solid ${COLORS.border}`,
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
+      {/* Task description */}
+      <div
+        style={{
+          fontSize: 12,
+          fontFamily: FONT,
+          fontWeight: 500,
+          color: T.textPrimary,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          lineHeight: 1.3,
+          marginBottom: 8,
+        }}
+      >
+        {truncate(orch.task || orch.title || orch.description || "Untitled", 60)}
+      </div>
+
+      {/* Bottom: status badge + fraction + elapsed */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span
           style={{
-            fontSize: 13,
-            fontFamily: FONT_STACK,
-            fontWeight: 500,
-            color: COLORS.textPrimary,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            fontSize: 9,
+            fontWeight: 600,
+            fontFamily: MONO,
+            color: statusColor,
+            background: statusColor + "18",
+            border: `1px solid ${statusColor}30`,
+            borderRadius: 10,
+            padding: "2px 8px",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            flexShrink: 0,
+            lineHeight: 1.4,
           }}
         >
-          {truncate(orch.task || orch.title || orch.description || "Untitled", 50)}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 4,
-          }}
-        >
-          {totalTasks > 0 && (
-            <span
-              style={{
-                fontSize: 11,
-                fontFamily: MONO_STACK,
-                color: COLORS.textMuted,
-              }}
-            >
-              {doneTasks}/{totalTasks} done
-            </span>
-          )}
+          {status}
+        </span>
+        {totalTasks > 0 && (
           <span
             style={{
               fontSize: 10,
-              fontFamily: MONO_STACK,
-              color: COLORS.textMuted,
+              fontFamily: MONO,
+              color: T.textMuted,
+              fontWeight: 500,
             }}
           >
-            {formatElapsed(orch.startedAt || orch.created)}
+            {doneTasks}/{totalTasks}
           </span>
-        </div>
-      </div>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          fontFamily: MONO_STACK,
-          color: statusColor,
-          background: statusColor + "18",
-          border: `1px solid ${statusColor}33`,
-          borderRadius: 4,
-          padding: "3px 8px",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-          flexShrink: 0,
-        }}
-      >
-        {status}
+        )}
+        <span
+          style={{
+            fontSize: 10,
+            fontFamily: MONO,
+            color: T.textMuted,
+            marginLeft: "auto",
+          }}
+        >
+          {formatElapsed(orch.startedAt || orch.created)}
+        </span>
       </div>
     </div>
   );
 });
 
-// -- Quick Action Button ------------------------------------------------------
+// -- Section Header -----------------------------------------------------------
 
-const QuickActionButton = memo(function QuickActionButton({
-  label,
-  icon,
-  onClick,
-  primary,
-}: {
-  label: string;
-  icon: string;
-  onClick: () => void;
-  primary?: boolean;
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 20px",
-        borderRadius: 8,
-        border: primary
-          ? `1px solid ${COLORS.primary}`
-          : `1px solid ${COLORS.border}`,
-        background: primary
-          ? hovered
-            ? COLORS.primary
-            : COLORS.primary + "cc"
-          : hovered
-            ? COLORS.card
-            : COLORS.panel,
-        color: primary ? "#fff" : COLORS.textPrimary,
-        fontFamily: FONT_STACK,
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: "pointer",
-        transition: "all 0.2s ease",
-        boxShadow: primary && hovered
-          ? `0 0 20px ${COLORS.primaryGlow}`
-          : "none",
-        outline: "none",
-      }}
-    >
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
-      {label}
-    </button>
-  );
-});
-
-// -- Panel wrapper ------------------------------------------------------------
-
-function Panel({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <div
-      style={{
-        background: COLORS.panel,
-        border: `1px solid ${COLORS.border}`,
-        borderRadius: 12,
-        padding: 20,
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-// -- Section title ------------------------------------------------------------
-
-function SectionTitle({
-  children,
+const SectionHeader = memo(function SectionHeader({
+  title,
+  color,
+  pulseDot,
   badge,
 }: {
-  children: React.ReactNode;
+  title: string;
+  color: string;
+  pulseDot?: boolean;
   badge?: string | number;
 }) {
   return (
@@ -438,31 +453,47 @@ function SectionTitle({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
-        marginBottom: 16,
+        gap: 8,
+        marginBottom: 14,
       }}
     >
+      {pulseDot && (
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: color,
+            boxShadow: `0 0 8px ${color}`,
+            animation: "ho-pulse 2s ease-in-out infinite",
+            flexShrink: 0,
+          }}
+        />
+      )}
       <span
         style={{
-          fontSize: 15,
-          fontWeight: 700,
-          fontFamily: FONT_STACK,
-          color: COLORS.textPrimary,
-          letterSpacing: "-0.01em",
+          fontSize: 11,
+          fontFamily: MONO,
+          fontWeight: 600,
+          color: color,
+          textTransform: "uppercase",
+          letterSpacing: "0.12em",
+          lineHeight: 1,
         }}
       >
-        {children}
+        {title}
       </span>
       {badge !== undefined && (
         <span
           style={{
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: 600,
-            fontFamily: MONO_STACK,
-            color: COLORS.primary,
-            background: COLORS.primaryMuted,
+            fontFamily: MONO,
+            color: color,
+            background: color + "18",
             borderRadius: 10,
-            padding: "2px 8px",
+            padding: "2px 7px",
+            lineHeight: 1.3,
           }}
         >
           {badge}
@@ -470,28 +501,9 @@ function SectionTitle({
       )}
     </div>
   );
-}
+});
 
-// -- Keyframe injection -------------------------------------------------------
-
-let stylesInjected = false;
-
-function injectKeyframes() {
-  if (stylesInjected) return;
-  if (typeof document === "undefined") return;
-  stylesInjected = true;
-
-  const style = document.createElement("style");
-  style.textContent = `
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-// -- Main component -----------------------------------------------------------
+// -- Main Component -----------------------------------------------------------
 
 export default function HeadOffice({
   projects,
@@ -503,14 +515,13 @@ export default function HeadOffice({
   onSpawnAgent,
   onNavigate,
 }: HeadOfficeProps) {
-  // Inject pulse keyframe on mount
+  // Inject styles on mount
   useEffect(() => {
-    injectKeyframes();
+    injectStyles();
   }, []);
 
   // Uptime counter
   const [uptimeSeconds, setUptimeSeconds] = useState(0);
-
   useEffect(() => {
     const interval = setInterval(() => {
       setUptimeSeconds((s) => s + 1);
@@ -529,7 +540,12 @@ export default function HeadOffice({
   const stats = useMemo(() => {
     const agents = serverAgents || [];
     const running = agents.filter((a) => (a.status || "").toLowerCase() === "running");
-    const completed = agents.filter((a) => (a.status || "").toLowerCase() === "done");
+    const completed = agents.filter(
+      (a) => {
+        const s = (a.status || "").toLowerCase();
+        return s === "done" || s === "completed";
+      }
+    );
     const failed = agents.filter((a) => (a.status || "").toLowerCase() === "failed");
 
     return {
@@ -541,18 +557,20 @@ export default function HeadOffice({
     };
   }, [projects, serverAgents, orchestrations]);
 
-  const runningAgents = useMemo(() => {
+  const liveAgents = useMemo(() => {
     return (serverAgents || []).filter(
       (a) => (a.status || "").toLowerCase() === "running"
     );
   }, [serverAgents]);
 
   const sortedOrchestrations = useMemo(() => {
-    return [...(orchestrations || [])].sort((a, b) => {
-      const aTime = new Date(a.startedAt || a.created || 0).getTime();
-      const bTime = new Date(b.startedAt || b.created || 0).getTime();
-      return bTime - aTime;
-    }).slice(0, 20);
+    return [...(orchestrations || [])]
+      .sort((a, b) => {
+        const aTime = new Date(a.startedAt || a.created || 0).getTime();
+        const bTime = new Date(b.startedAt || b.created || 0).getTime();
+        return bTime - aTime;
+      })
+      .slice(0, 20);
   }, [orchestrations]);
 
   const handleSelectAgent = useCallback(
@@ -565,80 +583,110 @@ export default function HeadOffice({
     [onSelectOrchestration]
   );
 
+  const handleNewOrch = useCallback(() => onNewOrchestration(), [onNewOrchestration]);
+  const handleSpawn = useCallback(() => onSpawnAgent(), [onSpawnAgent]);
+  const handleNavigateProjects = useCallback(
+    () => onNavigate("projects-list"),
+    [onNavigate]
+  );
+
+  // Hover states for action buttons
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 20,
-        padding: 4,
-        fontFamily: FONT_STACK,
-        color: COLORS.textPrimary,
+        gap: 16,
+        padding: 0,
+        fontFamily: FONT,
+        color: T.textPrimary,
         minHeight: "100%",
       }}
     >
-      {/* Stats Grid */}
+      {/* ============================================================ */}
+      {/* Row 1: Stats Strip (full width)                              */}
+      {/* ============================================================ */}
       <div
         style={{
           display: "flex",
-          gap: 12,
-          flexWrap: "wrap",
+          gap: 8,
+          width: "100%",
         }}
       >
         <StatCard
-          icon={"\u{1F4C1}"}
-          label="Total Projects"
+          label="Projects"
           value={stats.totalProjects}
-          color={COLORS.primary}
+          color={T.secondary}
+          delay={0}
         />
         <StatCard
-          icon={"\u{1F916}"}
           label="Active Agents"
           value={stats.activeAgents}
-          color={COLORS.success}
+          color={T.primary}
+          delay={50}
         />
         <StatCard
-          icon={"\u2705"}
           label="Completed"
           value={stats.completed}
-          color="#10b981"
+          color={T.success}
+          delay={100}
         />
         <StatCard
-          icon={"\u274C"}
           label="Failed"
           value={stats.failed}
-          color={COLORS.error}
+          color={T.danger}
+          delay={150}
         />
         <StatCard
-          icon={"\u{1F504}"}
           label="Orchestrations"
           value={stats.orchestrations}
-          color={COLORS.warning}
+          color={T.warm}
+          delay={200}
         />
         <StatCard
-          icon={"\u23F1}\uFE0F"}
           label="Uptime"
           value={formatUptime(uptimeSeconds)}
-          color={COLORS.textSecondary}
+          color={T.textSecondary}
+          delay={250}
         />
       </div>
 
-      {/* Middle Row: Live Agents + Orchestrations */}
+      {/* ============================================================ */}
+      {/* Row 2: Live Agents (60%) + Orchestrations (40%)              */}
+      {/* ============================================================ */}
       <div
         style={{
-          display: "flex",
-          gap: 16,
+          display: "grid",
+          gridTemplateColumns: "3fr 2fr",
+          gap: 12,
           flex: 1,
           minHeight: 0,
         }}
       >
-        {/* Live Agents Panel - 60% */}
-        <Panel style={{ flex: 6, display: "flex", flexDirection: "column", minHeight: 320, overflow: "hidden" }}>
-          <SectionTitle badge={runningAgents.length}>
-            Live Agents
-          </SectionTitle>
+        {/* Live Agents Panel */}
+        <div
+          style={{
+            background: T.surface1,
+            border: `1px solid ${T.border}`,
+            borderRadius: 10,
+            padding: "18px 20px",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 340,
+            overflow: "hidden",
+            animation: "ho-fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.1s both",
+          }}
+        >
+          <SectionHeader
+            title="LIVE AGENTS"
+            color={T.primary}
+            pulseDot={liveAgents.length > 0}
+            badge={liveAgents.length > 0 ? liveAgents.length : undefined}
+          />
 
-          {runningAgents.length === 0 ? (
+          {liveAgents.length === 0 ? (
             <div
               style={{
                 flex: 1,
@@ -646,44 +694,49 @@ export default function HeadOffice({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 12,
+                gap: 10,
                 padding: 40,
               }}
             >
-              <span style={{ fontSize: 36, opacity: 0.3 }}>{"\u{1F916}"}</span>
-              <span
-                style={{
-                  fontSize: 14,
-                  color: COLORS.textMuted,
-                  fontFamily: FONT_STACK,
-                  textAlign: "center",
-                }}
-              >
-                No agents running.
+              <span style={{ fontSize: 40, opacity: 0.15, lineHeight: 1 }}>
+                {"\u{1F916}"}
               </span>
               <span
                 style={{
-                  fontSize: 12,
-                  color: COLORS.textMuted,
-                  fontFamily: FONT_STACK,
-                  opacity: 0.7,
+                  fontSize: 13,
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                  color: T.textMuted,
+                  textAlign: "center",
                 }}
               >
-                Spawn an agent or start an orchestration to get going.
+                No active agents
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontFamily: FONT,
+                  color: T.textMuted,
+                  opacity: 0.6,
+                  textAlign: "center",
+                }}
+              >
+                Spawn an agent or start an orchestration
               </span>
             </div>
           ) : (
             <div
+              className="ho-scrollbar"
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                gap: 10,
+                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                gap: 8,
                 overflowY: "auto",
                 flex: 1,
                 paddingRight: 4,
               }}
             >
-              {runningAgents.map((agent) => (
+              {liveAgents.map((agent) => (
                 <AgentCard
                   key={agent.id}
                   agent={agent}
@@ -692,13 +745,27 @@ export default function HeadOffice({
               ))}
             </div>
           )}
-        </Panel>
+        </div>
 
-        {/* Orchestrations Panel - 40% */}
-        <Panel style={{ flex: 4, display: "flex", flexDirection: "column", minHeight: 320, overflow: "hidden" }}>
-          <SectionTitle badge={stats.orchestrations}>
-            Orchestrations
-          </SectionTitle>
+        {/* Orchestrations Panel */}
+        <div
+          style={{
+            background: T.surface1,
+            border: `1px solid ${T.border}`,
+            borderRadius: 10,
+            padding: "18px 20px",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 340,
+            overflow: "hidden",
+            animation: "ho-fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both",
+          }}
+        >
+          <SectionHeader
+            title="ORCHESTRATIONS"
+            color={T.warm}
+            badge={stats.orchestrations > 0 ? stats.orchestrations : undefined}
+          />
 
           {sortedOrchestrations.length === 0 ? (
             <div
@@ -708,37 +775,43 @@ export default function HeadOffice({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 12,
+                gap: 10,
                 padding: 40,
               }}
             >
-              <span style={{ fontSize: 36, opacity: 0.3 }}>{"\u{1F504}"}</span>
-              <span
-                style={{
-                  fontSize: 14,
-                  color: COLORS.textMuted,
-                  fontFamily: FONT_STACK,
-                  textAlign: "center",
-                }}
-              >
-                No orchestrations yet.
+              <span style={{ fontSize: 40, opacity: 0.15, lineHeight: 1 }}>
+                {"\u{1F504}"}
               </span>
               <span
                 style={{
-                  fontSize: 12,
-                  color: COLORS.textMuted,
-                  fontFamily: FONT_STACK,
-                  opacity: 0.7,
+                  fontSize: 13,
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                  color: T.textMuted,
+                  textAlign: "center",
                 }}
               >
-                Create one to decompose tasks into sub-agents.
+                No orchestrations yet
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontFamily: FONT,
+                  color: T.textMuted,
+                  opacity: 0.6,
+                  textAlign: "center",
+                }}
+              >
+                Decompose tasks into coordinated sub-agents
               </span>
             </div>
           ) : (
             <div
+              className="ho-scrollbar"
               style={{
                 overflowY: "auto",
                 flex: 1,
+                maxHeight: 400,
                 paddingRight: 4,
               }}
             >
@@ -751,56 +824,119 @@ export default function HeadOffice({
               ))}
             </div>
           )}
-        </Panel>
+        </div>
       </div>
 
-      {/* Quick Actions Bar */}
+      {/* ============================================================ */}
+      {/* Row 3: Quick Actions Bar (full width)                        */}
+      {/* ============================================================ */}
       <div
         style={{
+          background: T.surface2,
+          borderTop: `1px solid ${T.border}`,
+          borderRadius: 10,
+          height: 56,
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          padding: "12px 16px",
-          background: COLORS.panel,
-          border: `1px solid ${COLORS.border}`,
-          borderRadius: 12,
+          justifyContent: "center",
+          padding: "0 20px",
+          gap: 10,
+          animation: "ho-fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both",
         }}
       >
-        <span
+        {/* NEW ORCHESTRATION button */}
+        <button
+          onClick={handleNewOrch}
+          onMouseEnter={() => setHoveredAction("new-orch")}
+          onMouseLeave={() => setHoveredAction(null)}
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 18px",
+            borderRadius: 6,
+            border: "none",
+            background: T.primary,
+            color: "#ffffff",
+            fontFamily: FONT,
             fontSize: 12,
-            fontWeight: 600,
-            fontFamily: FONT_STACK,
-            color: COLORS.textMuted,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            marginRight: 8,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+            boxShadow: hoveredAction === "new-orch"
+              ? `0 0 24px ${T.primaryGlow}, 0 2px 8px rgba(0,0,0,0.3)`
+              : `0 0 12px ${T.primaryGlow}`,
+            transform: hoveredAction === "new-orch" ? "scale(1.02)" : "scale(1)",
+            outline: "none",
+            letterSpacing: "0.02em",
           }}
         >
-          Quick Actions
-        </span>
-        <QuickActionButton
-          icon={"\u{1F680}"}
-          label="New Orchestration"
-          onClick={onNewOrchestration}
-          primary
-        />
-        <QuickActionButton
-          icon={"\u{1F916}"}
-          label="Spawn Agent"
-          onClick={onSpawnAgent}
-        />
-        <QuickActionButton
-          icon={"\u{1F4C2}"}
-          label="View All Projects"
-          onClick={() => onNavigate("projects-list")}
-        />
+          NEW ORCHESTRATION
+        </button>
+
+        {/* SPAWN AGENT button */}
+        <button
+          onClick={handleSpawn}
+          onMouseEnter={() => setHoveredAction("spawn")}
+          onMouseLeave={() => setHoveredAction(null)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 18px",
+            borderRadius: 6,
+            border: `1px solid ${T.border}`,
+            background: hoveredAction === "spawn" ? T.secondaryMuted : T.surface3,
+            color: T.secondary,
+            fontFamily: FONT,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            outline: "none",
+            letterSpacing: "0.02em",
+          }}
+        >
+          SPAWN AGENT
+        </button>
+
+        {/* ALL PROJECTS button */}
+        <button
+          onClick={handleNavigateProjects}
+          onMouseEnter={() => setHoveredAction("projects")}
+          onMouseLeave={() => setHoveredAction(null)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 18px",
+            borderRadius: 6,
+            border: "none",
+            background: "transparent",
+            color: hoveredAction === "projects" ? T.textPrimary : T.textSecondary,
+            fontFamily: FONT,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            outline: "none",
+            letterSpacing: "0.02em",
+          }}
+        >
+          ALL PROJECTS
+        </button>
+
+        {/* Spacer */}
         <div style={{ flex: 1 }} />
+
+        {/* Right: summary */}
         <span
           style={{
-            fontSize: 11,
-            fontFamily: MONO_STACK,
-            color: COLORS.textMuted,
+            fontSize: 10,
+            fontFamily: MONO,
+            color: T.textMuted,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
           }}
         >
           {stats.totalProjects} projects {"\u00B7"} {stats.activeAgents} active
