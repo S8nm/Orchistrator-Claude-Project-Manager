@@ -1,0 +1,7 @@
+# Persist presets (version controlled)
+!presets/
+
+# Ignore runtime data
+agents/
+orchestrations/
+logs/

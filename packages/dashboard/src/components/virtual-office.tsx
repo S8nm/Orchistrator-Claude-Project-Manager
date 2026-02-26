@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { spawnAgent as apiSpawnAgent, streamAgent, killAgentProcess } from "@/lib/api";
+import { sendAgentInput, startOrchestration, streamOrchestration } from "@/lib/api";
+import PresetsPanel from "./presets-panel";
+import TaskGraph from "./task-graph";
 
 const ProjectManager = lazy(() => import("./project-manager"));
 
@@ -118,6 +121,11 @@ export default function VirtualOffice() {
   const [logs, setLogs] = useState<Record<string, {ts:string;msg:string}[]>>({});
   const [loaded, setLoaded] = useState(false);
   const logTimers = useRef<Record<string, any>>({});
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [orchestrations, setOrchestrations] = useState<any[]>([]);
+  const [activeOrch, setActiveOrch] = useState<string | null>(null);
+  const [orchTask, setOrchTask] = useState("");
+  const orchSources = useRef<Record<string, EventSource>>({});
   const eventSources = useRef<Record<string, EventSource>>({});
 
   useEffect(() => {
@@ -218,6 +226,82 @@ export default function VirtualOffice() {
       Object.values(eventSources.current).forEach(es => es.close());
     };
   }, []);
+
+  const handleSendInput = useCallback(async (agentId: string) => {
+    const input = inputValues[agentId];
+    if (!input?.trim()) return;
+    const ts = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    setLogs(prev => {
+      const arr = prev[agentId] || [];
+      return {...prev, [agentId]: [...arr.slice(-48), {ts, msg: `> ${input}`}]};
+    });
+    setInputValues(prev => ({...prev, [agentId]: ""}));
+    await sendAgentInput(agentId, input);
+  }, [inputValues]);
+
+  const handleSpawnPreset = useCallback(async (preset: any) => {
+    for (const agentDef of preset.agents) {
+      const agentId = uid();
+      const a: Agent = {
+        id: agentId,
+        type: agentDef.role,
+        name: agentDef.name,
+        skills: agentDef.skills || [],
+        status: agentDef.autoPrompt ? "running" : "idle",
+        task: agentDef.autoPrompt || "",
+        logs: [],
+      };
+      updateProj(p => { p.agents.push(a); return p; });
+      if (agentDef.autoPrompt || agentDef.mode === "claude") {
+        try {
+          const body: any = {
+            id: agentId,
+            mode: agentDef.mode || "claude",
+            role: agentDef.role,
+            name: agentDef.name,
+            skills: agentDef.skills,
+            cwd: agentDef.cwd || ".",
+          };
+          if (agentDef.autoPrompt) body.prompt = agentDef.autoPrompt;
+          if (agentDef.mode === "shell" && agentDef.autoPrompt) body.command = agentDef.autoPrompt;
+          const res = await fetch("/api/agent/spawn", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+          });
+          const result = await res.json();
+          if (result.success) connectStream(agentId);
+        } catch {}
+      }
+    }
+  }, [updateProj, connectStream]);
+
+  const handleStartOrchestration = useCallback(async () => {
+    if (!orchTask.trim()) return;
+    const result = await startOrchestration(orchTask, proj.id);
+    if (result.success && result.orchestration) {
+      const orch = result.orchestration;
+      setOrchestrations(prev => [orch, ...prev]);
+      setActiveOrch(orch.id);
+      setOrchTask("");
+      const es = streamOrchestration(orch.id, (event) => {
+        setOrchestrations(prev => prev.map(o => {
+          if (o.id !== orch.id) return o;
+          const updated = {...o};
+          if (event.type === "task_started" || event.type === "task_done" || event.type === "task_failed") {
+            updated.subTasks = updated.subTasks.map((st: any) =>
+              st.id === event.data.subTaskId ? {...st, status: event.type === "task_started" ? "running" : event.type === "task_done" ? "done" : "failed"} : st
+            );
+          }
+          if (event.type === "orchestration_done") {
+            updated.status = event.data.status;
+          }
+          return updated;
+        }));
+      });
+      orchSources.current[orch.id] = es;
+    }
+  }, [orchTask, proj.id]);
 
   const copy = (txt: string, id: string) => {
     navigator.clipboard.writeText(txt).catch(()=>{});
@@ -457,6 +541,18 @@ export default function VirtualOffice() {
                   <div style={{ padding:"8px 10px", borderTop:`1px solid ${border}`, display:"flex", flexWrap:"wrap", gap:3 }}>
                     {a.skills.map(sk => <span key={sk} style={S.skill(true)}>{sk}</span>)}
                   </div>
+                  {a.status === "running" && (
+                    <div style={{ padding:"6px 10px", borderTop:`1px solid ${border}`, display:"flex", gap:4 }}>
+                      <input
+                        style={{...S.input, fontSize:11, padding:"5px 8px", fontFamily:"'SF Mono',Monaco,monospace"}}
+                        placeholder="Type a message or command..."
+                        value={inputValues[a.id] || ""}
+                        onChange={e => setInputValues(prev => ({...prev, [a.id]: e.target.value}))}
+                        onKeyDown={e => { if (e.key === "Enter") handleSendInput(a.id); }}
+                      />
+                      <button style={S.btnSm(t.color)} onClick={() => handleSendInput(a.id)}>{"\u21B5"}</button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -581,7 +677,7 @@ export default function VirtualOffice() {
           </div>
         </div>
         <div style={S.tabs}>
-          {[{id:"office",l:"\u{1F3E2} Office"},{id:"projects",l:"\u{1F4C2} Projects"},{id:"commands",l:"\u26A1 Commands"},{id:"skills",l:"\u{1F3AF} Skills"},{id:"export",l:"\u{1F4E6} Export"}].map(t=>(
+          {[{id:"office",l:"\u{1F3E2} Office"},{id:"orchestrate",l:"\u{1F504} Orchestrate"},{id:"presets",l:"\u{1F3AD} Presets"},{id:"projects",l:"\u{1F4C2} Projects"},{id:"commands",l:"\u26A1 Commands"},{id:"skills",l:"\u{1F3AF} Skills"},{id:"export",l:"\u{1F4E6} Export"}].map(t=>(
             <button key={t.id} style={S.tab(view===t.id)} onClick={()=>setView(t.id)}>{t.l}</button>
           ))}
         </div>
@@ -592,6 +688,31 @@ export default function VirtualOffice() {
       {view==="commands" && renderCommands()}
       {view==="skills" && renderSkills()}
       {view==="export" && renderExport()}
+      {view==="orchestrate" && (
+        <div style={{ padding:"16px 20px" }}>
+          <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+            <input style={{...S.input, flex:1}} placeholder="Describe the task to orchestrate..." value={orchTask} onChange={e=>setOrchTask(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") handleStartOrchestration(); }} />
+            <button style={S.btn()} onClick={handleStartOrchestration}>{"\u{1F504}"} Orchestrate</button>
+          </div>
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+            {PRESET_COMMANDS.slice(0,6).map(cmd=>(
+              <button key={cmd.id} style={S.btnSm("#6366f1")} onClick={()=>setOrchTask(cmd.prompt)}>{cmd.label}</button>
+            ))}
+          </div>
+          {orchestrations.length > 0 && (
+            <div style={{ display:"flex", gap:4, marginBottom:12, flexWrap:"wrap" }}>
+              {orchestrations.map(o=>(
+                <button key={o.id} style={S.projTab(activeOrch===o.id)} onClick={()=>setActiveOrch(o.id)}>
+                  {o.taskDescription.slice(0,30)}{o.taskDescription.length>30?"...":""}
+                  <span style={{ marginLeft:4, fontSize:9, color: o.status==="done"?"#10b981":o.status==="failed"?"#ef4444":"#3b82f6" }}>{o.status}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <TaskGraph plan={orchestrations.find(o=>o.id===activeOrch) || null} />
+        </div>
+      )}
+      {view==="presets" && <PresetsPanel onSpawn={handleSpawnPreset} styles={S} />}
 
       {modal && (
         <div style={S.modal} onClick={(e: React.MouseEvent)=>e.target===e.currentTarget&&setModal(null)}>

@@ -7,7 +7,8 @@ export function dispatchCommand(): Command {
   return new Command("dispatch")
     .description("Route a task to the right project")
     .argument("<task>", "Task description")
-    .action((task) => {
+    .option("-x, --execute", "Execute via orchestration engine (requires dashboard running)")
+    .action(async (task, opts) => {
       const registry = new Registry(findRegistryPath());
       const projects = registry.listProjects({ status: "active" });
 
@@ -41,7 +42,7 @@ export function dispatchCommand(): Command {
       }
 
       console.log(chalk.bold(`\nRouting: "${task}"`));
-      console.log(chalk.green(`→ ${best.project.name} (${best.project.id})`));
+      console.log(chalk.green(`\u2192 ${best.project.name} (${best.project.id})`));
       console.log(chalk.gray(`  Path: ${best.project.path}`));
       console.log(chalk.gray(`  Score: ${best.score} keyword matches`));
 
@@ -49,6 +50,28 @@ export function dispatchCommand(): Command {
         console.log(chalk.gray(`\n  Also possible:`));
         for (const s of scored.slice(1, 3).filter((s) => s.score > 0)) {
           console.log(chalk.gray(`  - ${s.project.name} (score: ${s.score})`));
+        }
+      }
+
+      if (opts.execute) {
+        console.log(chalk.blue(`\n\u26A1 Executing via orchestration engine...`));
+        try {
+          const res = await fetch("http://localhost:3000/api/orchestrate/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task, projectId: best.project.id }),
+          });
+          const result = await res.json();
+          if (result.success) {
+            console.log(chalk.green(`\u2713 Orchestration started: ${result.orchestration.id}`));
+            console.log(chalk.gray(`  Sub-tasks: ${result.orchestration.subTasks.length}`));
+            console.log(chalk.gray(`  Est. tokens: ${result.orchestration.tokenEstimate}`));
+            console.log(chalk.gray(`\n  View at: http://localhost:3000 (Orchestrate tab)`));
+          } else {
+            console.log(chalk.red(`\u2717 Failed: ${result.error}`));
+          }
+        } catch {
+          console.log(chalk.red(`\u2717 Dashboard not running. Start it with: npm run dev:dashboard`));
         }
       }
     });
