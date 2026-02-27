@@ -62,6 +62,7 @@ interface HeadOfficeProps {
   projects: Array<{ id: string; name: string; status: string; stack: string[]; tags: string[] }>;
   serverAgents: any[];
   orchestrations: any[];
+  hierarchyStatuses?: any[];
   onSelectAgent: (id: string) => void;
   onSelectOrchestration: (id: string) => void;
   onNewOrchestration: () => void;
@@ -509,6 +510,7 @@ export default function HeadOffice({
   projects,
   serverAgents,
   orchestrations,
+  hierarchyStatuses = [],
   onSelectAgent,
   onSelectOrchestration,
   onNewOrchestration,
@@ -652,6 +654,61 @@ export default function HeadOffice({
           delay={250}
         />
       </div>
+
+      {/* ============================================================ */}
+      {/* Active Teams Row                                              */}
+      {/* ============================================================ */}
+      {hierarchyStatuses.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            overflowX: "auto",
+            animation: "ho-fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.05s both",
+          }}
+        >
+          {hierarchyStatuses.map((h: any) => (
+            <div
+              key={h.projectId}
+              onClick={() => onNavigate("hierarchy")}
+              style={{
+                background: T.surface1,
+                border: `1px solid ${h.active ? T.primary + "40" : T.border}`,
+                borderRadius: 8,
+                padding: "10px 14px",
+                minWidth: 180,
+                cursor: "pointer",
+                transition: "border-color 0.2s",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  fontFamily: FONT,
+                  color: T.textPrimary,
+                  marginBottom: 4,
+                }}
+              >
+                {"\u{1F3D7}\uFE0F"} {h.projectName}
+              </div>
+              <div style={{ display: "flex", gap: 10, fontSize: 10, fontFamily: MONO }}>
+                <span style={{ color: h.active ? T.primary : T.textMuted }}>
+                  {h.orchestratorStatus === "idle" ? "● Idle" : h.orchestratorStatus === "active" ? "● Active" : "○ " + h.orchestratorStatus}
+                </span>
+                {h.activeLeaderCount > 0 && (
+                  <span style={{ color: T.warm }}>
+                    {h.activeLeaderCount} leader{h.activeLeaderCount > 1 ? "s" : ""} awake
+                  </span>
+                )}
+                <span style={{ color: T.textMuted }}>
+                  {h.totalTasksCompleted} tasks done
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ============================================================ */}
       {/* Row 2: Live Agents (60%) + Orchestrations (40%)              */}

@@ -6,6 +6,7 @@ import HeadOffice from "@/components/head-office";
 import ProjectOffice from "@/components/project-office";
 import PresetsPanel from "@/components/presets-panel";
 import TaskGraph from "@/components/task-graph";
+import HierarchyTree from "@/components/hierarchy-tree";
 import {
   fetchProjects,
   streamAgent,
@@ -16,6 +17,12 @@ import {
   listOrchestrations,
   bootstrapProject,
   runCommand,
+  activateProject,
+  deactivateProject,
+  getHierarchyTree,
+  sendHierarchyTask,
+  getHierarchyStatus,
+  streamHierarchy,
 } from "@/lib/api";
 
 // Fetch real agents from server
@@ -376,6 +383,134 @@ export default function Home() {
   const [orchTask, setOrchTask] = useState("");
   const [activeOrch, setActiveOrch] = useState<string | null>(null);
 
+  // -- Hierarchy state --
+  const [hierarchyStatuses, setHierarchyStatuses] = useState<any[]>([]);
+  const [hierarchyTree, setHierarchyTree] = useState<{ registry: any; nodes: any[] } | null>(null);
+  const [selectedHierarchyProject, setSelectedHierarchyProject] = useState<string | null>(null);
+  const [selectedHierarchyNode, setSelectedHierarchyNode] = useState<string | null>(null);
+  const hierarchyStream = useRef<EventSource | null>(null);
+
+  // -- Poll hierarchy status --
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const data = await getHierarchyStatus();
+        if (data.hierarchies) setHierarchyStatuses(data.hierarchies);
+      } catch {}
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // -- Fetch tree when project selected --
+  useEffect(() => {
+    if (!selectedHierarchyProject) {
+      setHierarchyTree(null);
+      return;
+    }
+    const fetchTree = async () => {
+      try {
+        const data = await getHierarchyTree(selectedHierarchyProject);
+        if (data.registry) setHierarchyTree(data);
+      } catch {}
+    };
+    fetchTree();
+    const interval = setInterval(fetchTree, 2000);
+    return () => clearInterval(interval);
+  }, [selectedHierarchyProject]);
+
+  // -- Connect hierarchy SSE --
+  useEffect(() => {
+    if (!selectedHierarchyProject) return;
+    if (hierarchyStream.current) {
+      hierarchyStream.current.close();
+    }
+
+    const es = streamHierarchy(
+      selectedHierarchyProject,
+      (event) => {
+        // Refresh tree on any event
+        getHierarchyTree(selectedHierarchyProject)
+          .then((data) => { if (data.registry) setHierarchyTree(data); })
+          .catch(() => {});
+
+        // Connect agent SSE for new leaders/employees
+        if (event.type === "leader_active" && event.data.agentId) {
+          setTimeout(() => connectStream(event.data.agentId), 500);
+        }
+        if (event.type === "employee_spawned" && event.data.agentId) {
+          setTimeout(() => connectStream(event.data.agentId), 500);
+        }
+        if (event.type === "task_complete") {
+          addToast(`Task complete: ${event.data.summary?.slice(0, 60) || "done"}`, "success");
+        }
+      },
+      () => {
+        // SSE error - will poll instead
+      },
+    );
+    hierarchyStream.current = es;
+
+    return () => {
+      es.close();
+      hierarchyStream.current = null;
+    };
+  }, [selectedHierarchyProject, connectStream, addToast]);
+
+  const handleActivateProject = useCallback(
+    async (project: any) => {
+      try {
+        const result = await activateProject(project.id, project.path, project.name);
+        if (result.success) {
+          addToast(`${project.name} activated`, "success");
+          setSelectedHierarchyProject(project.id);
+          // Refresh statuses
+          const data = await getHierarchyStatus();
+          if (data.hierarchies) setHierarchyStatuses(data.hierarchies);
+        } else {
+          addToast(`Activation failed: ${result.error}`, "error");
+        }
+      } catch (err: any) {
+        addToast(`Activation failed: ${err.message}`, "error");
+      }
+    },
+    [addToast],
+  );
+
+  const handleDeactivateProject = useCallback(
+    async (projectId: string) => {
+      try {
+        await deactivateProject(projectId);
+        addToast("Project deactivated", "success");
+        setSelectedHierarchyProject(null);
+        setHierarchyTree(null);
+        const data = await getHierarchyStatus();
+        if (data.hierarchies) setHierarchyStatuses(data.hierarchies);
+      } catch (err: any) {
+        addToast(`Deactivation failed: ${err.message}`, "error");
+      }
+    },
+    [addToast],
+  );
+
+  const handleHierarchyTask = useCallback(
+    async (task: string) => {
+      if (!selectedHierarchyProject) return;
+      try {
+        const result = await sendHierarchyTask(selectedHierarchyProject, task);
+        if (result.success) {
+          addToast("Task sent to orchestrator", "success");
+        } else {
+          addToast(`Task failed: ${result.error}`, "error");
+        }
+      } catch (err: any) {
+        addToast(`Task failed: ${err.message}`, "error");
+      }
+    },
+    [selectedHierarchyProject, addToast],
+  );
+
   if (!loaded) {
     return (
       <div
@@ -406,6 +541,7 @@ export default function Home() {
           projects={projects}
           serverAgents={serverAgents}
           orchestrations={orchestrations}
+          hierarchyStatuses={hierarchyStatuses}
           onSelectAgent={(id) => {
             // Find which project this agent belongs to, navigate there
             const agent = serverAgents.find((a) => a.id === id);
@@ -479,6 +615,81 @@ export default function Home() {
             </div>
           )}
           <TaskGraph plan={orchestrations.find((o) => o.id === activeOrch) || null} />
+        </div>
+      )}
+
+      {activeView === "hierarchy" && (
+        <div style={{ padding: "16px 20px" }}>
+          {/* Project selector for hierarchy */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "#7b839a", fontFamily: "'Outfit', sans-serif" }}>
+              Projects:
+            </span>
+            {projects.map((p) => {
+              const isActive = hierarchyStatuses.some((h) => h.projectId === p.id && h.active);
+              const isSelected = selectedHierarchyProject === p.id;
+              return (
+                <button
+                  key={p.id}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 6,
+                    border: isSelected
+                      ? "1px solid #6366f1"
+                      : isActive
+                        ? "1px solid #00d4aa40"
+                        : "1px solid #1e2338",
+                    background: isSelected ? "#6366f120" : isActive ? "#00d4aa08" : "transparent",
+                    color: isSelected ? "#a5b4fc" : isActive ? "#00d4aa" : "#64748b",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    fontWeight: 500,
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                  onClick={() => {
+                    if (isActive) {
+                      setSelectedHierarchyProject(p.id);
+                    } else {
+                      handleActivateProject(p);
+                    }
+                  }}
+                >
+                  {isActive && "● "}{p.name}
+                  {!isActive && " (click to activate)"}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Hierarchy tree */}
+          {hierarchyTree ? (
+            <HierarchyTree
+              registry={hierarchyTree.registry}
+              nodes={hierarchyTree.nodes}
+              selectedNodeId={selectedHierarchyNode}
+              onSelectNode={(node) => setSelectedHierarchyNode(
+                selectedHierarchyNode === node.id ? null : node.id,
+              )}
+              onSendTask={handleHierarchyTask}
+              onDeactivate={() => {
+                if (selectedHierarchyProject) {
+                  handleDeactivateProject(selectedHierarchyProject);
+                }
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                textAlign: "center",
+                padding: 60,
+                color: "#454d68",
+                fontSize: 13,
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
+              Select a project above to view or activate its agent hierarchy
+            </div>
+          )}
         </div>
       )}
 

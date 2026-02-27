@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { saveAgent, appendLog, loadAllAgents, deleteAgent as deletePersistedAgent } from "./persistence";
-import type { AgentRole, AgentMode, PersistedAgent } from "@orchestrator/shared";
+import type { AgentRole, AgentMode, AgentTier, PersistedAgent } from "@orchestrator/shared";
 
 export interface AgentProcess {
   id: string;
@@ -22,6 +22,9 @@ export interface AgentProcess {
   subTaskId?: string;
   projectId?: string;
   output: string;
+  tier?: AgentTier;
+  parentId?: string | null;
+  hierarchyNodeId?: string | null;
 }
 
 const globalStore = globalThis as typeof globalThis & { __agentProcesses?: Map<string, AgentProcess> };
@@ -44,6 +47,9 @@ export interface SpawnOpts {
   projectId?: string;
   mcpConfig?: string;
   maxTurns?: number;
+  tier?: AgentTier;
+  parentId?: string;
+  hierarchyNodeId?: string;
 }
 
 // Tool restrictions per role
@@ -78,6 +84,9 @@ function toPersisted(agent: AgentProcess): PersistedAgent {
     orchestrationId: agent.orchestrationId,
     subTaskId: agent.subTaskId,
     projectId: agent.projectId,
+    tier: agent.tier,
+    parentId: agent.parentId ?? undefined,
+    hierarchyNodeId: agent.hierarchyNodeId ?? undefined,
   };
 }
 
@@ -141,6 +150,9 @@ export function spawnAgent(opts: SpawnOpts): AgentProcess {
     subTaskId: opts.subTaskId,
     projectId: opts.projectId,
     output: "",
+    tier: opts.tier,
+    parentId: opts.parentId ?? null,
+    hierarchyNodeId: opts.hierarchyNodeId ?? null,
   };
 
   wireProcess(child, agent);
@@ -197,6 +209,9 @@ export function spawnClaudeAgent(opts: SpawnOpts & { prompt: string; model?: str
     subTaskId: opts.subTaskId,
     projectId: opts.projectId,
     output: "",
+    tier: opts.tier,
+    parentId: opts.parentId ?? null,
+    hierarchyNodeId: opts.hierarchyNodeId ?? null,
   };
 
   wireProcess(child, agent);
@@ -251,6 +266,9 @@ export function spawnInteractiveClaude(opts: SpawnOpts): AgentProcess {
     subTaskId: opts.subTaskId,
     projectId: opts.projectId,
     output: "",
+    tier: opts.tier,
+    parentId: opts.parentId ?? null,
+    hierarchyNodeId: opts.hierarchyNodeId ?? null,
   };
 
   wireProcess(child, agent);

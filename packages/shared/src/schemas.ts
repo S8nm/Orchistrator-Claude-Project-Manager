@@ -44,6 +44,13 @@ export const AgentPresetSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
+export const AgentTierSchema = z.enum(["orchestrator", "leader", "employee"]);
+
+export const HierarchyStatusSchema = z.enum([
+  "cold", "spawning", "idle", "active",
+  "dormant", "done", "failed", "shutdown",
+]);
+
 export const PersistedAgentSchema = z.object({
   id: z.string().min(1),
   pid: z.number().optional(),
@@ -60,6 +67,9 @@ export const PersistedAgentSchema = z.object({
   orchestrationId: z.string().optional(),
   subTaskId: z.string().optional(),
   projectId: z.string().optional(),
+  tier: AgentTierSchema.optional(),
+  parentId: z.string().optional(),
+  hierarchyNodeId: z.string().optional(),
 });
 
 export const SubTaskSchema = z.object({
@@ -90,4 +100,55 @@ export const OrchestrationPlanSchema = z.object({
   completedAt: z.number().optional(),
   tokenEstimate: z.number().default(0),
   cacheHits: z.number().default(0),
+});
+
+// --- Hierarchy Schemas ---
+
+export const HierarchyNodeSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  tier: AgentTierSchema,
+  role: AgentRoleSchema,
+  status: HierarchyStatusSchema,
+  parentId: z.string().nullable(),
+  childIds: z.array(z.string()).default([]),
+  processId: z.string().nullable(),
+  memoryPath: z.string().nullable(),
+  lastActiveAt: z.number().nullable(),
+  currentTaskId: z.string().nullable(),
+  tasksCompleted: z.number().default(0),
+  tasksFailed: z.number().default(0),
+  createdAt: z.number(),
+});
+
+export const HierarchyRegistrySchema = z.object({
+  projectId: z.string().min(1),
+  projectPath: z.string(),
+  projectName: z.string(),
+  orchestratorNodeId: z.string(),
+  leaders: z.record(z.string()),
+  status: z.enum(["active", "inactive"]),
+  activatedAt: z.number().nullable(),
+  deactivatedAt: z.number().nullable(),
+});
+
+export const AgentMemoryEntrySchema = z.object({
+  timestamp: z.number(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  status: z.enum(["done", "failed"]),
+  filesModified: z.array(z.string()).default([]),
+  keyDecisions: z.array(z.string()).default([]),
+  outcome: z.string(),
+  employeeCount: z.number().default(0),
+});
+
+export const AgentMemorySchema = z.object({
+  role: AgentRoleSchema,
+  projectId: z.string(),
+  lastUpdated: z.number(),
+  recentActivity: z.array(AgentMemoryEntrySchema).default([]),
+  domainKnowledge: z.array(z.string()).default([]),
+  activeConcerns: z.array(z.string()).default([]),
+  workingAgreements: z.array(z.string()).default([]),
 });

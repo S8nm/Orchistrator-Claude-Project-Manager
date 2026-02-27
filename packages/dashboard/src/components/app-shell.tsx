@@ -86,6 +86,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "head-office", label: "Head Office", icon: "\u{1F3E2}" },
+  { id: "hierarchy", label: "Agent Teams", icon: "\u{1F3D7}\uFE0F" },
   { id: "orchestrations", label: "Orchestrations", icon: "\u{1F504}" },
   { id: "presets", label: "Presets", icon: "\u{1F3AD}" },
 ];

@@ -162,3 +162,92 @@ export function streamOrchestration(
 
   return es;
 }
+
+// --- Hierarchy API ---
+
+export async function activateProject(projectId: string, projectPath: string, projectName: string) {
+  const res = await fetch("/api/hierarchy/activate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, projectPath, projectName }),
+  });
+  return res.json();
+}
+
+export async function deactivateProject(projectId: string) {
+  const res = await fetch("/api/hierarchy/deactivate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId }),
+  });
+  return res.json();
+}
+
+export async function getHierarchyTree(projectId: string) {
+  const res = await fetch(`/api/hierarchy/tree?projectId=${encodeURIComponent(projectId)}`);
+  return res.json();
+}
+
+export async function sendHierarchyTask(projectId: string, task: string) {
+  const res = await fetch("/api/hierarchy/send-task", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, task }),
+  });
+  return res.json();
+}
+
+export async function getHierarchyStatus() {
+  const res = await fetch("/api/hierarchy/status");
+  return res.json();
+}
+
+export function streamHierarchy(
+  projectId: string,
+  onEvent: (event: { type: string; data: any }) => void,
+  onError?: () => void,
+): EventSource {
+  const es = new EventSource(`/api/hierarchy/stream?projectId=${encodeURIComponent(projectId)}`);
+
+  const eventTypes = [
+    "orchestrator_spawned", "orchestrator_idle", "orchestrator_shutdown",
+    "task_received", "plan_received",
+    "leader_waking", "leader_active", "leader_done", "leader_failed",
+    "employee_spawned", "employee_done",
+    "task_complete", "memory_updated",
+  ];
+
+  for (const eventType of eventTypes) {
+    es.addEventListener(eventType, (e) => {
+      onEvent({ type: eventType, data: JSON.parse(e.data) });
+    });
+  }
+
+  // Also handle generic "status" event
+  es.addEventListener("status", (e) => {
+    onEvent({ type: "status", data: JSON.parse(e.data) });
+  });
+
+  es.onerror = () => {
+    onError?.();
+    es.close();
+  };
+
+  return es;
+}
+
+export async function getAgentMemory(projectId: string, role: string) {
+  const res = await fetch(
+    `/api/hierarchy/memory?projectId=${encodeURIComponent(projectId)}&role=${encodeURIComponent(role)}`,
+  );
+  return res.json();
+}
+
+export async function updateAgentMemory(projectId: string, role: string, memory: any) {
+  const res = await fetch("/api/hierarchy/memory", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, role, memory }),
+  });
+  return res.json();
+}

@@ -79,6 +79,9 @@ export interface PersistedAgent {
   orchestrationId?: string;
   subTaskId?: string;
   projectId?: string;
+  tier?: AgentTier;
+  parentId?: string;
+  hierarchyNodeId?: string;
 }
 
 export interface SubTask {
@@ -109,4 +112,61 @@ export interface OrchestrationPlan {
   completedAt?: number;
   tokenEstimate: number;
   cacheHits: number;
+}
+
+// --- Hierarchy Types ---
+
+export type AgentTier = "orchestrator" | "leader" | "employee";
+
+export type HierarchyStatus =
+  | "cold" | "spawning" | "idle" | "active"
+  | "dormant" | "done" | "failed" | "shutdown";
+
+export interface HierarchyNode {
+  id: string;
+  projectId: string;
+  tier: AgentTier;
+  role: AgentRole;
+  status: HierarchyStatus;
+  parentId: string | null;
+  childIds: string[];
+  processId: string | null;
+  memoryPath: string | null;
+  lastActiveAt: number | null;
+  currentTaskId: string | null;
+  tasksCompleted: number;
+  tasksFailed: number;
+  createdAt: number;
+}
+
+export interface HierarchyRegistry {
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  orchestratorNodeId: string;
+  leaders: Record<string, string>;
+  status: "active" | "inactive";
+  activatedAt: number | null;
+  deactivatedAt: number | null;
+}
+
+export interface AgentMemoryEntry {
+  timestamp: number;
+  taskId: string;
+  taskTitle: string;
+  status: "done" | "failed";
+  filesModified: string[];
+  keyDecisions: string[];
+  outcome: string;
+  employeeCount: number;
+}
+
+export interface AgentMemory {
+  role: AgentRole;
+  projectId: string;
+  lastUpdated: number;
+  recentActivity: AgentMemoryEntry[];
+  domainKnowledge: string[];
+  activeConcerns: string[];
+  workingAgreements: string[];
 }

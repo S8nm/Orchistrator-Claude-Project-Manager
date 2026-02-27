@@ -12,6 +12,9 @@ import type {
   PersistedAgent,
   AgentPreset,
   OrchestrationPlan,
+  AgentMemory,
+  HierarchyRegistry,
+  HierarchyNode,
 } from "@orchestrator/shared";
 
 // data/ dir lives at project root, dashboard runs from packages/dashboard/
@@ -24,6 +27,8 @@ const dirs = {
   presetsRoles: join(DATA_DIR, "presets", "roles"),
   presetsTeams: join(DATA_DIR, "presets", "teams"),
   presetsCustom: join(DATA_DIR, "presets", "custom"),
+  memory: join(DATA_DIR, "memory"),
+  hierarchy: join(DATA_DIR, "hierarchy"),
 };
 
 function ensureDirs() {
@@ -150,4 +155,68 @@ export function loadOrchestration(id: string): OrchestrationPlan | null {
 
 export function loadAllOrchestrations(): OrchestrationPlan[] {
   return listJsonFiles<OrchestrationPlan>(dirs.orchestrations);
+}
+
+// --- Agent Memory ---
+
+function ensureMemoryDir(projectId: string): string {
+  const dir = join(dirs.memory, projectId);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function saveMemory(projectId: string, role: string, memory: AgentMemory): void {
+  const dir = ensureMemoryDir(projectId);
+  writeFileSync(join(dir, `${role}.json`), JSON.stringify(memory, null, 2), "utf-8");
+}
+
+export function loadMemory(projectId: string, role: string): AgentMemory | null {
+  return readJson<AgentMemory>(join(dirs.memory, projectId, `${role}.json`));
+}
+
+export function loadAllMemory(projectId: string): AgentMemory[] {
+  const dir = join(dirs.memory, projectId);
+  return listJsonFiles<AgentMemory>(dir);
+}
+
+// --- Hierarchy ---
+
+function ensureHierarchyDir(projectId: string): string {
+  const dir = join(dirs.hierarchy, projectId);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function saveHierarchyRegistry(reg: HierarchyRegistry): void {
+  const dir = ensureHierarchyDir(reg.projectId);
+  writeFileSync(join(dir, "registry.json"), JSON.stringify(reg, null, 2), "utf-8");
+}
+
+export function loadHierarchyRegistry(projectId: string): HierarchyRegistry | null {
+  return readJson<HierarchyRegistry>(join(dirs.hierarchy, projectId, "registry.json"));
+}
+
+export function loadAllHierarchyRegistries(): HierarchyRegistry[] {
+  if (!existsSync(dirs.hierarchy)) return [];
+  return readdirSync(dirs.hierarchy)
+    .map((d) => readJson<HierarchyRegistry>(join(dirs.hierarchy, d, "registry.json")))
+    .filter((v): v is HierarchyRegistry => v !== null);
+}
+
+export function saveHierarchyNode(projectId: string, node: HierarchyNode): void {
+  const dir = ensureHierarchyDir(projectId);
+  writeFileSync(join(dir, `${node.id}.json`), JSON.stringify(node, null, 2), "utf-8");
+}
+
+export function loadHierarchyNode(projectId: string, nodeId: string): HierarchyNode | null {
+  return readJson<HierarchyNode>(join(dirs.hierarchy, projectId, `${nodeId}.json`));
+}
+
+export function loadAllHierarchyNodes(projectId: string): HierarchyNode[] {
+  const dir = join(dirs.hierarchy, projectId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json") && f !== "registry.json")
+    .map((f) => readJson<HierarchyNode>(join(dir, f)))
+    .filter((v): v is HierarchyNode => v !== null);
 }
