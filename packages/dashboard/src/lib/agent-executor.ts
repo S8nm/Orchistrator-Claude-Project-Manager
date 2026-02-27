@@ -173,7 +173,7 @@ export function spawnClaudeAgent(opts: SpawnOpts & { prompt: string; model?: str
     cwd: opts.cwd,
     shell: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
+    env: (() => { const e = { ...process.env }; delete e.CLAUDECODE; return e; })(),
   });
 
   const command = `claude -p [${opts.prompt.slice(0, 50)}...] --model ${model}`;
@@ -227,7 +227,7 @@ export function spawnInteractiveClaude(opts: SpawnOpts): AgentProcess {
     cwd: opts.cwd,
     shell: true,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env },
+    env: (() => { const e = { ...process.env }; delete e.CLAUDECODE; return e; })(),
   });
 
   const command = `claude --interactive --tools ${tools.join(",")}`;
