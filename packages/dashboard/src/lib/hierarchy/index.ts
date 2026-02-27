@@ -10,3 +10,4 @@ export {
 
 export { HierarchyManager, getOrCreateHierarchyManager } from "./manager";
 export { parseStructuredOutput } from "./output-parser";
+export { OperaManager } from "./opera";

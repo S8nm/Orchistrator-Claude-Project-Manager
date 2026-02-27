@@ -6,3 +6,4 @@ dist/
 .claude.local.md
 .mcp.json
 *.tsbuildinfo
+data/

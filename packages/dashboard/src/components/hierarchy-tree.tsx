@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
-import type { HierarchyNode, HierarchyRegistry } from "@orchestrator/shared";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
+import type { HierarchyNode, HierarchyRegistry, MessageLogEntry } from "@orchestrator/shared";
 
 // -- Design System ------------------------------------------------------------
 
@@ -55,14 +55,15 @@ interface StatusVisual {
 }
 
 const STATUS_VISUALS: Record<string, StatusVisual> = {
-  cold:     { dotColor: T.textMuted,  textColor: T.textMuted,    label: "Cold",     pulse: false, glow: false },
-  spawning: { dotColor: "#facc15",    textColor: "#facc15",      label: "Spawning", pulse: true,  glow: false },
-  idle:     { dotColor: T.success,    textColor: T.success,      label: "Idle",     pulse: true,  glow: false },
-  active:   { dotColor: T.success,    textColor: T.success,      label: "Active",   pulse: false, glow: true  },
-  dormant:  { dotColor: T.textMuted,  textColor: T.textMuted,    label: "Dormant",  pulse: false, glow: false },
-  done:     { dotColor: T.success,    textColor: T.success,      label: "Done",     pulse: false, glow: false },
-  failed:   { dotColor: T.danger,     textColor: T.danger,       label: "Failed",   pulse: false, glow: false },
-  shutdown: { dotColor: "#374151",    textColor: "#374151",       label: "Shutdown", pulse: false, glow: false },
+  cold:        { dotColor: T.textMuted,  textColor: T.textMuted,    label: "Cold",        pulse: false, glow: false },
+  placeholder: { dotColor: "#38bdf8",    textColor: "#38bdf8",      label: "Placeholder",  pulse: true,  glow: false },
+  spawning:    { dotColor: "#facc15",    textColor: "#facc15",      label: "Spawning",     pulse: true,  glow: false },
+  idle:        { dotColor: T.success,    textColor: T.success,      label: "Idle",         pulse: true,  glow: false },
+  active:      { dotColor: T.success,    textColor: T.success,      label: "Active",       pulse: false, glow: true  },
+  dormant:     { dotColor: T.textMuted,  textColor: T.textMuted,    label: "Dormant",      pulse: false, glow: false },
+  done:        { dotColor: T.success,    textColor: T.success,      label: "Done",         pulse: false, glow: false },
+  failed:      { dotColor: T.danger,     textColor: T.danger,       label: "Failed",       pulse: false, glow: false },
+  shutdown:    { dotColor: "#374151",    textColor: "#374151",       label: "Shutdown",     pulse: false, glow: false },
 };
 
 function getStatusVisual(status: string): StatusVisual {
@@ -133,6 +134,7 @@ function injectStyles() {
 interface HierarchyTreeProps {
   registry: HierarchyRegistry;
   nodes: HierarchyNode[];
+  messageLog?: MessageLogEntry[];
   onSelectNode?: (node: HierarchyNode) => void;
   onSendTask?: (task: string) => void;
   onDeactivate?: () => void;
@@ -214,6 +216,7 @@ const OrchestratorNode = memo(function OrchestratorNode({
   const [hovered, setHovered] = useState(false);
   const config = getRoleConfig(node.role);
   const vis = getStatusVisual(node.status);
+  const isPlaceholder = node.status === "placeholder";
 
   return (
     <div
@@ -223,8 +226,8 @@ const OrchestratorNode = memo(function OrchestratorNode({
       style={{
         width: 260,
         margin: "0 auto",
-        background: T.surface2,
-        border: `2px solid ${isSelected ? config.color : hovered ? T.borderHover : T.border}`,
+        background: isPlaceholder ? T.surface1 : T.surface2,
+        border: `2px ${isPlaceholder ? "dashed" : "solid"} ${isSelected ? config.color : hovered ? T.borderHover : T.border}`,
         borderRadius: 12,
         padding: "20px 24px",
         display: "flex",
@@ -233,6 +236,7 @@ const OrchestratorNode = memo(function OrchestratorNode({
         gap: 10,
         cursor: "pointer",
         transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        opacity: isPlaceholder ? 0.75 : 1,
         boxShadow: isSelected
           ? `0 0 24px ${config.color}30, 0 4px 20px rgba(0,0,0,0.3)`
           : vis.glow
@@ -245,7 +249,7 @@ const OrchestratorNode = memo(function OrchestratorNode({
       }}
     >
       {/* Icon */}
-      <span style={{ fontSize: 36, lineHeight: 1 }}>{config.icon}</span>
+      <span style={{ fontSize: 36, lineHeight: 1, opacity: isPlaceholder ? 0.5 : 1 }}>{config.icon}</span>
 
       {/* Label */}
       <span
@@ -253,7 +257,7 @@ const OrchestratorNode = memo(function OrchestratorNode({
           fontSize: 15,
           fontWeight: 700,
           fontFamily: FONT,
-          color: T.textPrimary,
+          color: isPlaceholder ? T.textSecondary : T.textPrimary,
           letterSpacing: "0.02em",
         }}
       >
@@ -263,22 +267,39 @@ const OrchestratorNode = memo(function OrchestratorNode({
       {/* Status badge */}
       <StatusBadge status={node.status} />
 
+      {/* Placeholder message */}
+      {isPlaceholder && (
+        <span
+          style={{
+            fontSize: 10,
+            fontFamily: FONT,
+            color: T.textMuted,
+            textAlign: "center",
+            fontStyle: "italic",
+          }}
+        >
+          Send a task to activate
+        </span>
+      )}
+
       {/* Tasks completed */}
-      <span
-        style={{
-          fontSize: 10,
-          fontFamily: MONO,
-          color: T.textMuted,
-          fontWeight: 500,
-        }}
-      >
-        {node.tasksCompleted} tasks completed
-        {node.tasksFailed > 0 && (
-          <span style={{ color: T.danger, marginLeft: 6 }}>
-            {node.tasksFailed} failed
-          </span>
-        )}
-      </span>
+      {!isPlaceholder && (
+        <span
+          style={{
+            fontSize: 10,
+            fontFamily: MONO,
+            color: T.textMuted,
+            fontWeight: 500,
+          }}
+        >
+          {node.tasksCompleted} tasks completed
+          {node.tasksFailed > 0 && (
+            <span style={{ color: T.danger, marginLeft: 6 }}>
+              {node.tasksFailed} failed
+            </span>
+          )}
+        </span>
+      )}
     </div>
   );
 });
@@ -678,11 +699,129 @@ const TaskInputBar = memo(function TaskInputBar({
   );
 });
 
+// -- Message Log Component ----------------------------------------------------
+
+const LOG_SOURCE_COLORS: Record<string, string> = {
+  system: T.textMuted,
+  orchestrator: T.primary,
+  leader: T.secondary,
+  employee: T.warm,
+  opera: "#a855f7",
+  user: T.textPrimary,
+};
+
+const LOG_TYPE_ICONS: Record<string, string> = {
+  info: "\u2139\uFE0F",
+  task: "\u{1F4CB}",
+  plan: "\u{1F5FA}\uFE0F",
+  result: "\u2705",
+  error: "\u274C",
+  context: "\u{1F4E6}",
+};
+
+const MessageLog = memo(function MessageLog({
+  entries,
+  maxHeight = 200,
+}: {
+  entries: MessageLogEntry[];
+  maxHeight?: number;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries.length]);
+
+  if (entries.length === 0) {
+    return (
+      <div
+        style={{
+          padding: "16px 20px",
+          fontSize: 11,
+          fontFamily: MONO,
+          color: T.textMuted,
+          textAlign: "center",
+          fontStyle: "italic",
+        }}
+      >
+        No messages yet
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      className="ht-scrollbar"
+      style={{
+        maxHeight,
+        overflowY: "auto",
+        padding: "8px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
+      {entries.map((entry) => {
+        const sourceColor = LOG_SOURCE_COLORS[entry.source] || T.textMuted;
+        const typeIcon = LOG_TYPE_ICONS[entry.type] || "";
+        const time = new Date(entry.timestamp).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+
+        return (
+          <div
+            key={entry.id}
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              fontSize: 10,
+              fontFamily: MONO,
+              lineHeight: 1.4,
+              padding: "3px 6px",
+              borderRadius: 4,
+              background: entry.type === "error" ? T.dangerMuted : "transparent",
+            }}
+          >
+            <span style={{ color: T.textMuted, flexShrink: 0, minWidth: 56 }}>
+              {time}
+            </span>
+            <span style={{ flexShrink: 0, width: 14, textAlign: "center" }}>
+              {typeIcon}
+            </span>
+            <span
+              style={{
+                color: sourceColor,
+                fontWeight: 600,
+                flexShrink: 0,
+                minWidth: 70,
+                textTransform: "uppercase",
+                fontSize: 9,
+              }}
+            >
+              {entry.source}
+            </span>
+            <span style={{ color: T.textSecondary, flex: 1, wordBreak: "break-word" }}>
+              {entry.content}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 // -- Main Component -----------------------------------------------------------
 
 export default function HierarchyTree({
   registry,
   nodes,
+  messageLog,
   onSelectNode,
   onSendTask,
   onDeactivate,
@@ -895,7 +1034,7 @@ export default function HierarchyTree({
         )}
 
         {/* Leader Row */}
-        {leaderNodes.length > 0 && (
+        {leaderNodes.length > 0 ? (
           <div
             style={{
               display: "flex",
@@ -950,8 +1089,73 @@ export default function HierarchyTree({
               </div>
             ))}
           </div>
+        ) : (
+          /* Empty leaders state — placeholder mode */
+          orchestratorNode && (
+            <div
+              style={{
+                marginTop: 20,
+                padding: "20px 24px",
+                background: T.surface2,
+                border: `1px dashed ${T.border}`,
+                borderRadius: 8,
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  fontFamily: FONT,
+                  color: T.textMuted,
+                  fontStyle: "italic",
+                }}
+              >
+                Leaders will be spawned when orchestrator plans a task
+              </div>
+            </div>
+          )
         )}
       </div>
+
+      {/* ================================================================== */}
+      {/* Message Log                                                        */}
+      {/* ================================================================== */}
+      {messageLog && messageLog.length > 0 && (
+        <div
+          style={{
+            background: T.surface2,
+            border: `1px solid ${T.border}`,
+            borderTop: "none",
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 16px",
+              borderBottom: `1px solid ${T.border}`,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 11, fontFamily: MONO, color: T.textMuted, fontWeight: 600 }}>
+              MESSAGE LOG
+            </span>
+            <span
+              style={{
+                fontSize: 9,
+                fontFamily: MONO,
+                color: T.textMuted,
+                background: T.surface3,
+                padding: "1px 6px",
+                borderRadius: 8,
+              }}
+            >
+              {messageLog.length}
+            </span>
+          </div>
+          <MessageLog entries={messageLog} maxHeight={180} />
+        </div>
+      )}
 
       {/* ================================================================== */}
       {/* Task Input Bar                                                     */}

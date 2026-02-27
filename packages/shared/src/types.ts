@@ -32,7 +32,7 @@ export interface ProjectStatus {
 }
 
 export type AgentRole =
-  | "orchestrator" | "architect" | "backend" | "frontend"
+  | "opera" | "orchestrator" | "architect" | "backend" | "frontend"
   | "tester" | "reviewer" | "fullstack" | "devops"
   | "security" | "docs" | "refactorer";
 
@@ -116,10 +116,27 @@ export interface OrchestrationPlan {
 
 // --- Hierarchy Types ---
 
-export type AgentTier = "orchestrator" | "leader" | "employee";
+export interface MessageLogEntry {
+  id: string;
+  timestamp: number;
+  source: "system" | "orchestrator" | "leader" | "employee" | "opera" | "user";
+  role: AgentRole;
+  type: "info" | "task" | "plan" | "result" | "error" | "context";
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OperaRegistry {
+  status: "active" | "inactive";
+  projectIds: string[];
+  activatedAt: number | null;
+  messageLog: MessageLogEntry[];
+}
+
+export type AgentTier = "opera" | "orchestrator" | "leader" | "employee";
 
 export type HierarchyStatus =
-  | "cold" | "spawning" | "idle" | "active"
+  | "cold" | "placeholder" | "spawning" | "idle" | "active"
   | "dormant" | "done" | "failed" | "shutdown";
 
 export interface HierarchyNode {
@@ -137,6 +154,7 @@ export interface HierarchyNode {
   tasksCompleted: number;
   tasksFailed: number;
   createdAt: number;
+  messageLog: MessageLogEntry[];
 }
 
 export interface HierarchyRegistry {
@@ -148,6 +166,7 @@ export interface HierarchyRegistry {
   status: "active" | "inactive";
   activatedAt: number | null;
   deactivatedAt: number | null;
+  messageLog: MessageLogEntry[];
 }
 
 export interface AgentMemoryEntry {

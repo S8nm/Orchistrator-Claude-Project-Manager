@@ -215,6 +215,7 @@ export function streamHierarchy(
     "leader_waking", "leader_active", "leader_done", "leader_failed",
     "employee_spawned", "employee_done",
     "task_complete", "memory_updated",
+    "message_log",
   ];
 
   for (const eventType of eventTypes) {
@@ -249,5 +250,41 @@ export async function updateAgentMemory(projectId: string, role: string, memory:
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ projectId, role, memory }),
   });
+  return res.json();
+}
+
+// --- Opera API ---
+
+export async function getOperaStatus() {
+  const res = await fetch("/api/hierarchy/opera");
+  return res.json();
+}
+
+export function streamOpera(
+  onEvent: (event: { type: string; data: any }) => void,
+  onError?: () => void,
+): EventSource {
+  const es = new EventSource("/api/hierarchy/opera/stream");
+
+  es.addEventListener("opera_log", (e) => {
+    onEvent({ type: "opera_log", data: JSON.parse(e.data) });
+  });
+
+  es.addEventListener("status", (e) => {
+    onEvent({ type: "status", data: JSON.parse(e.data) });
+  });
+
+  es.onerror = () => {
+    onError?.();
+    es.close();
+  };
+
+  return es;
+}
+
+export async function getMessageLog(projectId: string, limit = 50) {
+  const res = await fetch(
+    `/api/hierarchy/log?projectId=${encodeURIComponent(projectId)}&limit=${limit}`,
+  );
   return res.json();
 }

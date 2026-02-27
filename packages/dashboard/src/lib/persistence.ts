@@ -15,6 +15,7 @@ import type {
   AgentMemory,
   HierarchyRegistry,
   HierarchyNode,
+  OperaRegistry,
 } from "@orchestrator/shared";
 
 // data/ dir lives at project root, dashboard runs from packages/dashboard/
@@ -219,4 +220,14 @@ export function loadAllHierarchyNodes(projectId: string): HierarchyNode[] {
     .filter((f) => f.endsWith(".json") && f !== "registry.json")
     .map((f) => readJson<HierarchyNode>(join(dir, f)))
     .filter((v): v is HierarchyNode => v !== null);
+}
+
+// --- Opera ---
+
+export function saveOperaRegistry(reg: OperaRegistry): void {
+  writeFileSync(join(dirs.hierarchy, "opera.json"), JSON.stringify(reg, null, 2), "utf-8");
+}
+
+export function loadOperaRegistry(): OperaRegistry | null {
+  return readJson<OperaRegistry>(join(dirs.hierarchy, "opera.json"));
 }

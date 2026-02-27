@@ -1,14 +1,15 @@
 "use client";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; animate: boolean }> = {
-  cold:     { color: "#454d68", label: "Cold",     animate: false },
-  spawning: { color: "#f59e0b", label: "Spawning", animate: true },
-  idle:     { color: "#00d4aa", label: "Idle",     animate: true },
-  active:   { color: "#4ade80", label: "Active",   animate: true },
-  dormant:  { color: "#454d68", label: "Dormant",  animate: false },
-  done:     { color: "#4ade80", label: "Done",     animate: false },
-  failed:   { color: "#f87171", label: "Failed",   animate: false },
-  shutdown: { color: "#333",    label: "Shutdown",  animate: false },
+  cold:        { color: "#454d68", label: "Cold",        animate: false },
+  placeholder: { color: "#38bdf8", label: "Placeholder", animate: true },
+  spawning:    { color: "#f59e0b", label: "Spawning",    animate: true },
+  idle:        { color: "#00d4aa", label: "Idle",        animate: true },
+  active:      { color: "#4ade80", label: "Active",      animate: true },
+  dormant:     { color: "#454d68", label: "Dormant",     animate: false },
+  done:        { color: "#4ade80", label: "Done",        animate: false },
+  failed:      { color: "#f87171", label: "Failed",      animate: false },
+  shutdown:    { color: "#333",    label: "Shutdown",     animate: false },
 };
 
 interface AgentStatusBadgeProps {

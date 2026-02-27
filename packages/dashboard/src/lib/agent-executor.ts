@@ -173,6 +173,7 @@ export function spawnClaudeAgent(opts: SpawnOpts & { prompt: string; model?: str
   const args = [
     "-p", opts.prompt,
     "--output-format", "stream-json",
+    "--verbose",
     "--model", model,
     "--tools", tools.join(","),
     "--dangerously-skip-permissions",
@@ -231,6 +232,7 @@ export function spawnInteractiveClaude(opts: SpawnOpts): AgentProcess {
   const args = [
     "--input-format", "stream-json",
     "--output-format", "stream-json",
+    "--verbose",
     "--tools", tools.join(","),
     "--dangerously-skip-permissions",
   ];

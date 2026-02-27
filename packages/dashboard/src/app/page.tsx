@@ -385,7 +385,7 @@ export default function Home() {
 
   // -- Hierarchy state --
   const [hierarchyStatuses, setHierarchyStatuses] = useState<any[]>([]);
-  const [hierarchyTree, setHierarchyTree] = useState<{ registry: any; nodes: any[] } | null>(null);
+  const [hierarchyTree, setHierarchyTree] = useState<{ registry: any; nodes: any[]; messageLog?: any[] } | null>(null);
   const [selectedHierarchyProject, setSelectedHierarchyProject] = useState<string | null>(null);
   const [selectedHierarchyNode, setSelectedHierarchyNode] = useState<string | null>(null);
   const hierarchyStream = useRef<EventSource | null>(null);
@@ -666,6 +666,7 @@ export default function Home() {
             <HierarchyTree
               registry={hierarchyTree.registry}
               nodes={hierarchyTree.nodes}
+              messageLog={hierarchyTree.messageLog}
               selectedNodeId={selectedHierarchyNode}
               onSelectNode={(node) => setSelectedHierarchyNode(
                 selectedHierarchyNode === node.id ? null : node.id,

@@ -1,20 +1,16 @@
 import { EventEmitter } from "events";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import {
   spawnClaudeAgent,
   spawnInteractiveClaude,
   sendInput,
   killAgent,
-  getAgent,
-  listAgents,
 } from "../agent-executor";
 import {
   saveHierarchyRegistry,
-  loadHierarchyRegistry,
   loadAllHierarchyRegistries,
   saveHierarchyNode,
-  loadAllHierarchyNodes,
 } from "../persistence";
 import {
   getOrCreateMemory,
@@ -30,14 +26,8 @@ import type {
   AgentRole,
   HierarchyNode,
   HierarchyRegistry,
-  AgentMemoryEntry,
+  MessageLogEntry,
 } from "@orchestrator/shared";
-
-// All non-orchestrator leader roles
-const LEADER_ROLES: AgentRole[] = [
-  "architect", "backend", "frontend", "tester", "reviewer",
-  "fullstack", "devops", "security", "docs", "refactorer",
-];
 
 const ROLE_PROMPTS: Record<string, string> = {
   orchestrator: "ROLE: Orchestrator\nSKILLS: task-decomposition, coordination, dependency-resolution\nYou are the project orchestrator. You decompose tasks and coordinate team leaders.",
@@ -53,8 +43,53 @@ const ROLE_PROMPTS: Record<string, string> = {
   refactorer: "ROLE: Refactorer Lead\nSKILLS: refactoring-patterns, code-quality\nSCOPE: all src/",
 };
 
+const VALID_LEADER_ROLES = new Set<string>([
+  "architect", "backend", "frontend", "tester", "reviewer",
+  "fullstack", "devops", "security", "docs", "refactorer",
+]);
+
+const MAX_REGISTRY_LOG = 200;
+const MAX_NODE_LOG = 50;
+
 function uid(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function logId(): string {
+  return `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Extract text content from stream-json output.
+ * Stream-json sends newline-delimited JSON events; we pull text from
+ * assistant message content blocks and the final result field.
+ */
+function extractTextFromStreamJson(raw: string): string {
+  const parts: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const evt = JSON.parse(line);
+      // assistant messages with content blocks
+      if (evt.type === "assistant" && evt.message?.content) {
+        for (const block of evt.message.content) {
+          if (block.type === "text" && block.text) parts.push(block.text);
+        }
+      }
+      // content_block_delta (streaming text deltas)
+      if (evt.type === "content_block_delta" && evt.delta?.text) {
+        parts.push(evt.delta.text);
+      }
+      // final result
+      if (evt.type === "result" && typeof evt.result === "string") {
+        parts.push(evt.result);
+      }
+    } catch {
+      // Not valid JSON — might be raw text, include it
+      parts.push(line);
+    }
+  }
+  return parts.join("\n");
 }
 
 function loadRepoContext(projectPath: string): string {
@@ -68,6 +103,49 @@ function loadRepoContext(projectPath: string): string {
     } catch { /* fallback */ }
   }
   return context;
+}
+
+/** Gather project context: package.json, directory structure, CLAUDE.md */
+function gatherProjectContext(projectPath: string): string {
+  const parts: string[] = [`Project path: ${projectPath}`];
+
+  // CLAUDE.md
+  const claudeMd = join(projectPath, "CLAUDE.md");
+  if (existsSync(claudeMd)) {
+    try {
+      parts.push("--- CLAUDE.md ---");
+      parts.push(readFileSync(claudeMd, "utf-8").slice(0, 2000));
+    } catch { /* skip */ }
+  }
+
+  // package.json
+  const pkgJson = join(projectPath, "package.json");
+  if (existsSync(pkgJson)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgJson, "utf-8"));
+      parts.push("--- package.json (summary) ---");
+      parts.push(`name: ${pkg.name || "unknown"}`);
+      parts.push(`description: ${pkg.description || "none"}`);
+      if (pkg.scripts) parts.push(`scripts: ${Object.keys(pkg.scripts).join(", ")}`);
+      if (pkg.dependencies) parts.push(`deps: ${Object.keys(pkg.dependencies).join(", ")}`);
+    } catch { /* skip */ }
+  }
+
+  // Top-level directory listing
+  try {
+    const entries = readdirSync(projectPath)
+      .filter((e) => !e.startsWith(".") && e !== "node_modules")
+      .slice(0, 30);
+    const dirs = entries.filter((e) => {
+      try { return statSync(join(projectPath, e)).isDirectory(); } catch { return false; }
+    });
+    const files = entries.filter((e) => !dirs.includes(e));
+    parts.push("--- Directory Structure ---");
+    if (dirs.length > 0) parts.push(`Directories: ${dirs.join(", ")}`);
+    if (files.length > 0) parts.push(`Files: ${files.join(", ")}`);
+  } catch { /* skip */ }
+
+  return parts.join("\n");
 }
 
 interface PendingTask {
@@ -87,6 +165,7 @@ export class HierarchyManager {
   private nodes = new Map<string, HierarchyNode>();
   private orchestratorAgentId: string | null = null;
   private outputBuffer = "";
+  private processedMessageKeys = new Set<string>();
   private pendingTask: PendingTask | null = null;
   private activeLeaders = new Map<string, { role: AgentRole; taskId: string }>();
 
@@ -96,49 +175,113 @@ export class HierarchyManager {
     this.projectName = projectName;
     this.emitter.setMaxListeners(30);
 
-    // Build registry
+    // Build registry — no pre-created leaders
     const orchNodeId = `orch-${projectId}`;
-    const leaders: Record<string, string> = {};
-    for (const role of LEADER_ROLES) {
-      leaders[role] = `leader-${role}-${projectId}`;
-    }
 
     this.registry = {
       projectId,
       projectPath,
       projectName,
       orchestratorNodeId: orchNodeId,
-      leaders,
+      leaders: {},  // empty — leaders created dynamically
       status: "inactive",
       activatedAt: null,
       deactivatedAt: null,
+      messageLog: [],
     };
   }
 
-  // --- Activation ---
+  // --- Message Logging ---
+
+  log(
+    entry: Omit<MessageLogEntry, "id" | "timestamp">,
+    nodeId?: string,
+  ): void {
+    const full: MessageLogEntry = {
+      ...entry,
+      id: logId(),
+      timestamp: Date.now(),
+    };
+
+    // Append to registry log
+    this.registry.messageLog.push(full);
+    if (this.registry.messageLog.length > MAX_REGISTRY_LOG) {
+      this.registry.messageLog = this.registry.messageLog.slice(-MAX_REGISTRY_LOG);
+    }
+
+    // Append to specific node log if provided
+    if (nodeId) {
+      const node = this.nodes.get(nodeId);
+      if (node) {
+        node.messageLog.push(full);
+        if (node.messageLog.length > MAX_NODE_LOG) {
+          node.messageLog = node.messageLog.slice(-MAX_NODE_LOG);
+        }
+      }
+    }
+
+    this.emitter.emit("event", { type: "message_log", data: full });
+  }
+
+  // --- Activation (Placeholder Mode) ---
 
   async activate(): Promise<void> {
-    // Create orchestrator node
+    // Create orchestrator node in placeholder mode — no process spawned
     const orchNode = this.createNode(
       this.registry.orchestratorNodeId,
       "orchestrator",
       "orchestrator",
       null,
     );
-    orchNode.status = "spawning";
+    orchNode.status = "placeholder";
     this.saveNode(orchNode);
-
-    // Create dormant leader nodes
-    for (const role of LEADER_ROLES) {
-      const nodeId = this.registry.leaders[role];
-      const node = this.createNode(nodeId, "leader", role as AgentRole, this.registry.orchestratorNodeId);
-      node.status = "dormant";
-      this.saveNode(node);
-      initializeMemory(this.projectId, role as AgentRole);
-    }
 
     // Initialize orchestrator memory
     initializeMemory(this.projectId, "orchestrator");
+
+    // Update registry
+    this.registry.status = "active";
+    this.registry.activatedAt = Date.now();
+    saveHierarchyRegistry(this.registry);
+
+    this.log({
+      source: "system",
+      role: "orchestrator",
+      type: "info",
+      content: `Project "${this.projectName}" activated in placeholder mode`,
+    }, this.registry.orchestratorNodeId);
+
+    this.emitter.emit("event", {
+      type: "orchestrator_spawned",
+      data: { projectId: this.projectId, placeholder: true },
+    });
+  }
+
+  // --- Spawn Orchestrator (called on first task) ---
+
+  private async spawnOrchestrator(): Promise<void> {
+    const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
+    if (!orchNode) throw new Error("No orchestrator node");
+
+    orchNode.status = "spawning";
+    this.saveNode(orchNode);
+
+    this.log({
+      source: "system",
+      role: "orchestrator",
+      type: "info",
+      content: "Spawning orchestrator process...",
+    }, this.registry.orchestratorNodeId);
+
+    // Gather project context
+    const projectContext = gatherProjectContext(this.projectPath);
+
+    this.log({
+      source: "system",
+      role: "orchestrator",
+      type: "context",
+      content: `Context gathered for project (${projectContext.length} chars)`,
+    }, this.registry.orchestratorNodeId);
 
     // Spawn interactive orchestrator process
     const mcpConfig = findMcpConfig(this.projectPath);
@@ -175,22 +318,29 @@ export class HierarchyManager {
         this.saveNode(node);
       }
       this.orchestratorAgentId = null;
+      this.log({
+        source: "system",
+        role: "orchestrator",
+        type: "info",
+        content: "Orchestrator process exited",
+      }, this.registry.orchestratorNodeId);
       this.emitter.emit("event", {
         type: "orchestrator_shutdown",
         data: { projectId: this.projectId },
       });
     });
 
-    // Send initial context
-    const repoContext = loadRepoContext(this.projectPath);
+    // Send initial context with project info + memory
     const memory = getOrCreateMemory(this.projectId, "orchestrator");
     const memoryMd = renderMemoryAsMarkdown(memory);
+
+    const availableRoles = Array.from(VALID_LEADER_ROLES).join(", ");
 
     const initMessage = [
       `You are the ORCHESTRATOR for project "${this.projectName}".`,
       "",
-      "REPO_CONTEXT:",
-      repoContext,
+      "PROJECT CONTEXT:",
+      projectContext,
       "",
       ROLE_PROMPTS.orchestrator,
       "",
@@ -198,7 +348,9 @@ export class HierarchyManager {
       memoryMd,
       "",
       "INSTRUCTIONS:",
-      "When you receive a task, decompose it and output a dispatch_plan JSON block:",
+      "When you receive a task, analyze it and decompose it into subtasks for the team leaders you need.",
+      "You decide which leaders to create based on the task requirements.",
+      "Output a dispatch_plan JSON block:",
       "```json",
       '{ "type": "dispatch_plan", "taskId": "<id>", "subtasks": [',
       '  { "role": "<leader_role>", "title": "<short title>", "prompt": "<detailed task>", "deps": ["<other_subtask_role>"], "priority": 1 }',
@@ -210,20 +362,23 @@ export class HierarchyManager {
       '{ "type": "task_complete", "taskId": "<id>", "summary": "<what was accomplished>" }',
       "```",
       "",
-      "Available leader roles: " + LEADER_ROLES.join(", "),
+      `Available leader roles: ${availableRoles}`,
+      "Only create subtasks for roles you actually need — don't use all roles unless truly needed.",
       "",
       'Reply "READY" to confirm you are initialized.',
     ].join("\n");
 
     sendInput(agent.id, initMessage);
 
-    // Update registry
-    this.registry.status = "active";
-    this.registry.activatedAt = Date.now();
-    saveHierarchyRegistry(this.registry);
+    this.log({
+      source: "orchestrator",
+      role: "orchestrator",
+      type: "info",
+      content: "Orchestrator initialized and ready",
+    }, this.registry.orchestratorNodeId);
 
     this.emitter.emit("event", {
-      type: "orchestrator_spawned",
+      type: "orchestrator_idle",
       data: { projectId: this.projectId, agentId: agent.id },
     });
   }
@@ -259,6 +414,13 @@ export class HierarchyManager {
     this.registry.deactivatedAt = Date.now();
     saveHierarchyRegistry(this.registry);
 
+    this.log({
+      source: "system",
+      role: "orchestrator",
+      type: "info",
+      content: `Project "${this.projectName}" deactivated`,
+    });
+
     this.emitter.emit("event", {
       type: "orchestrator_shutdown",
       data: { projectId: this.projectId },
@@ -268,6 +430,12 @@ export class HierarchyManager {
   // --- Task Dispatch ---
 
   async sendTask(task: string): Promise<string> {
+    // Auto-spawn orchestrator if in placeholder/cold/shutdown mode
+    const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
+    if (orchNode && (orchNode.status === "placeholder" || orchNode.status === "cold" || orchNode.status === "shutdown")) {
+      await this.spawnOrchestrator();
+    }
+
     if (!this.orchestratorAgentId) {
       throw new Error("Orchestrator not active for project " + this.projectId);
     }
@@ -275,20 +443,29 @@ export class HierarchyManager {
     const taskId = `task-${uid()}`;
 
     // Update orchestrator to active
-    const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
-    if (orchNode) {
-      orchNode.status = "active";
-      orchNode.currentTaskId = taskId;
-      this.saveNode(orchNode);
+    const node = this.nodes.get(this.registry.orchestratorNodeId);
+    if (node) {
+      node.status = "active";
+      node.currentTaskId = taskId;
+      this.saveNode(node);
     }
+
+    this.log({
+      source: "user",
+      role: "orchestrator",
+      type: "task",
+      content: `Task received: ${task}`,
+      metadata: { taskId },
+    }, this.registry.orchestratorNodeId);
 
     this.emitter.emit("event", {
       type: "task_received",
       data: { projectId: this.projectId, taskId, description: task },
     });
 
-    // Clear output buffer for fresh parsing
+    // Clear output buffer and processed keys for fresh parsing
     this.outputBuffer = "";
+    this.processedMessageKeys.clear();
 
     // Send task to orchestrator
     const taskMessage = [
@@ -296,6 +473,7 @@ export class HierarchyManager {
       task,
       "",
       "Decompose this into subtasks for the appropriate team leaders.",
+      "Only use the leaders you actually need for this task.",
       "Output a dispatch_plan JSON block.",
     ].join("\n");
 
@@ -317,8 +495,16 @@ export class HierarchyManager {
   // --- Process Orchestrator Output ---
 
   private processOrchestratorOutput(): void {
-    const messages = parseStructuredOutput(this.outputBuffer);
+    // Stream-json output is newline-delimited JSON events.
+    // Extract text content from events before parsing for structured messages.
+    const textContent = extractTextFromStreamJson(this.outputBuffer);
+    const messages = parseStructuredOutput(textContent);
     for (const msg of messages) {
+      // Deduplicate — buffer is cumulative so same messages appear on each call
+      const key = `${msg.type}:${("taskId" in msg && msg.taskId) || ""}`;
+      if (this.processedMessageKeys.has(key)) continue;
+      this.processedMessageKeys.add(key);
+
       switch (msg.type) {
         case "dispatch_plan":
           this.handleDispatchPlan(msg);
@@ -327,17 +513,63 @@ export class HierarchyManager {
           this.handleTaskComplete(msg.taskId, msg.summary);
           break;
         case "spawn_employee":
-          // Future: leaders can request employee spawns
           break;
       }
     }
   }
 
   private async handleDispatchPlan(plan: DispatchPlan): Promise<void> {
+    const roles = plan.subtasks.map((s) => s.role).join(", ");
+
+    this.log({
+      source: "orchestrator",
+      role: "orchestrator",
+      type: "plan",
+      content: `Dispatch plan received: ${plan.subtasks.length} subtasks for roles: ${roles}`,
+      metadata: { taskId: plan.taskId, subtaskCount: plan.subtasks.length },
+    }, this.registry.orchestratorNodeId);
+
     this.emitter.emit("event", {
       type: "plan_received",
       data: { projectId: this.projectId, taskId: plan.taskId, subtasks: plan.subtasks.length },
     });
+
+    // Dynamically create leader nodes for roles that don't exist yet
+    for (const subtask of plan.subtasks) {
+      const role = subtask.role as AgentRole;
+      if (!VALID_LEADER_ROLES.has(role)) continue;
+
+      if (!this.registry.leaders[role]) {
+        const nodeId = `leader-${role}-${this.projectId}`;
+        this.registry.leaders[role] = nodeId;
+
+        const leaderNode = this.createNode(
+          nodeId,
+          "leader",
+          role,
+          this.registry.orchestratorNodeId,
+        );
+        leaderNode.status = "dormant";
+        this.saveNode(leaderNode);
+
+        // Add to orchestrator's childIds
+        const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
+        if (orchNode && !orchNode.childIds.includes(nodeId)) {
+          orchNode.childIds.push(nodeId);
+          this.saveNode(orchNode);
+        }
+
+        initializeMemory(this.projectId, role);
+        saveHierarchyRegistry(this.registry);
+
+        this.log({
+          source: "system",
+          role,
+          type: "info",
+          content: `Leader "${role}" created dynamically for this task`,
+        }, nodeId);
+      }
+    }
 
     // Sort by priority (lower = higher priority)
     const sorted = [...plan.subtasks].sort((a, b) => a.priority - b.priority);
@@ -370,7 +602,6 @@ export class HierarchyManager {
         }
       }
 
-      // Continue with next batch if more subtasks remain
       if (completed.size < sorted.length) {
         await executeBatch();
       }
@@ -388,11 +619,17 @@ export class HierarchyManager {
       }
       reportLines.push("", "Output a task_complete JSON block with a summary.");
       sendInput(this.orchestratorAgentId, reportLines.join("\n"));
+
+      this.log({
+        source: "system",
+        role: "orchestrator",
+        type: "result",
+        content: `All ${sorted.length} leaders completed. Awaiting summary.`,
+      }, this.registry.orchestratorNodeId);
     }
   }
 
   private handleTaskComplete(taskId: string, summary: string): void {
-    // Update orchestrator to idle
     const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
     if (orchNode) {
       orchNode.status = "idle";
@@ -401,7 +638,6 @@ export class HierarchyManager {
       this.saveNode(orchNode);
     }
 
-    // Update orchestrator memory
     if (this.pendingTask) {
       updateMemoryAfterTask(this.projectId, "orchestrator", {
         timestamp: Date.now(),
@@ -415,12 +651,19 @@ export class HierarchyManager {
       });
     }
 
+    this.log({
+      source: "orchestrator",
+      role: "orchestrator",
+      type: "result",
+      content: `Task complete: ${summary}`,
+      metadata: { taskId },
+    }, this.registry.orchestratorNodeId);
+
     this.emitter.emit("event", {
       type: "task_complete",
       data: { projectId: this.projectId, taskId, summary },
     });
 
-    // Resolve pending promise
     if (this.pendingTask?.taskId === taskId) {
       this.pendingTask.resolve(summary);
       this.pendingTask = null;
@@ -444,12 +687,18 @@ export class HierarchyManager {
       node.currentTaskId = taskId;
       this.saveNode(node);
 
+      this.log({
+        source: "system",
+        role,
+        type: "task",
+        content: `Leader "${role}" waking for task: ${task.slice(0, 100)}`,
+      }, nodeId);
+
       this.emitter.emit("event", {
         type: "leader_waking",
         data: { projectId: this.projectId, role, taskId },
       });
 
-      // Build prompt with memory
       const memory = getOrCreateMemory(this.projectId, role);
       const memoryMd = renderMemoryAsMarkdown(
         summarizeMemory(memory, 1500),
@@ -500,7 +749,6 @@ export class HierarchyManager {
         const output = agent.output;
         const succeeded = code === 0;
 
-        // Update node
         node.status = "dormant";
         node.processId = null;
         node.currentTaskId = null;
@@ -509,7 +757,6 @@ export class HierarchyManager {
         node.lastActiveAt = Date.now();
         this.saveNode(node);
 
-        // Update leader memory
         updateMemoryAfterTask(this.projectId, role, {
           timestamp: Date.now(),
           taskId,
@@ -526,6 +773,16 @@ export class HierarchyManager {
         this.activeLeaders.delete(agent.id);
 
         const eventType = succeeded ? "leader_done" : "leader_failed";
+
+        this.log({
+          source: "leader",
+          role,
+          type: succeeded ? "result" : "error",
+          content: succeeded
+            ? `Leader "${role}" completed task`
+            : `Leader "${role}" failed with exit code ${code}`,
+        }, nodeId);
+
         this.emitter.emit("event", {
           type: eventType,
           data: {
@@ -561,7 +818,6 @@ export class HierarchyManager {
       node.status = "active";
       this.saveNode(node);
 
-      // Add employee to parent's childIds
       const parentNode = this.nodes.get(parentNodeId);
       if (parentNode) {
         parentNode.childIds.push(empId);
@@ -598,6 +854,13 @@ export class HierarchyManager {
       node.processId = agent.id;
       this.saveNode(node);
 
+      this.log({
+        source: "employee",
+        role,
+        type: "info",
+        content: `Employee spawned for task: ${task.slice(0, 80)}`,
+      }, empId);
+
       this.emitter.emit("event", {
         type: "employee_spawned",
         data: { projectId: this.projectId, parentRole: parentLeaderRole, agentId: agent.id, task },
@@ -624,10 +887,12 @@ export class HierarchyManager {
   getTree(): {
     registry: HierarchyRegistry;
     nodes: HierarchyNode[];
+    messageLog: MessageLogEntry[];
   } {
     return {
       registry: this.registry,
       nodes: Array.from(this.nodes.values()),
+      messageLog: this.registry.messageLog.slice(-50),
     };
   }
 
@@ -638,6 +903,7 @@ export class HierarchyManager {
     orchestratorStatus: string;
     activeLeaderCount: number;
     totalTasksCompleted: number;
+    recentLog: MessageLogEntry[];
   } {
     const orchNode = this.nodes.get(this.registry.orchestratorNodeId);
     let totalCompleted = 0;
@@ -653,6 +919,7 @@ export class HierarchyManager {
       orchestratorStatus: orchNode?.status || "cold",
       activeLeaderCount: activeLeaders,
       totalTasksCompleted: totalCompleted,
+      recentLog: this.registry.messageLog.slice(-10),
     };
   }
 
@@ -679,6 +946,7 @@ export class HierarchyManager {
       tasksCompleted: 0,
       tasksFailed: 0,
       createdAt: Date.now(),
+      messageLog: [],
     };
     this.nodes.set(id, node);
     return node;
@@ -730,7 +998,7 @@ export async function reconnectHierarchies(): Promise<void> {
   const registries = loadAllHierarchyRegistries();
   for (const reg of registries) {
     if (reg.status === "active") {
-      console.log(`[hierarchy] Reconnecting orchestrator for ${reg.projectName}...`);
+      console.log(`[hierarchy] Reconnecting placeholder for ${reg.projectName}...`);
       const mgr = getOrCreateHierarchyManager(reg.projectId, reg.projectPath, reg.projectName);
       try {
         await mgr.activate();
@@ -752,5 +1020,5 @@ function extractFilePaths(output: string): string[] {
       paths.push(match[1]);
     }
   }
-  return paths.slice(0, 20); // Cap at 20
+  return paths.slice(0, 20);
 }

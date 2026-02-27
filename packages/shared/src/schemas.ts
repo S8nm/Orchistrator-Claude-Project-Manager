@@ -18,7 +18,7 @@ export const RegistrySchema = z.object({
 });
 
 export const AgentRoleSchema = z.enum([
-  "orchestrator", "architect", "backend", "frontend",
+  "opera", "orchestrator", "architect", "backend", "frontend",
   "tester", "reviewer", "fullstack", "devops",
   "security", "docs", "refactorer",
 ]);
@@ -44,10 +44,10 @@ export const AgentPresetSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
-export const AgentTierSchema = z.enum(["orchestrator", "leader", "employee"]);
+export const AgentTierSchema = z.enum(["opera", "orchestrator", "leader", "employee"]);
 
 export const HierarchyStatusSchema = z.enum([
-  "cold", "spawning", "idle", "active",
+  "cold", "placeholder", "spawning", "idle", "active",
   "dormant", "done", "failed", "shutdown",
 ]);
 
@@ -104,6 +104,23 @@ export const OrchestrationPlanSchema = z.object({
 
 // --- Hierarchy Schemas ---
 
+export const MessageLogEntrySchema = z.object({
+  id: z.string().min(1),
+  timestamp: z.number(),
+  source: z.enum(["system", "orchestrator", "leader", "employee", "opera", "user"]),
+  role: AgentRoleSchema,
+  type: z.enum(["info", "task", "plan", "result", "error", "context"]),
+  content: z.string(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export const OperaRegistrySchema = z.object({
+  status: z.enum(["active", "inactive"]),
+  projectIds: z.array(z.string()).default([]),
+  activatedAt: z.number().nullable(),
+  messageLog: z.array(MessageLogEntrySchema).default([]),
+});
+
 export const HierarchyNodeSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -119,6 +136,7 @@ export const HierarchyNodeSchema = z.object({
   tasksCompleted: z.number().default(0),
   tasksFailed: z.number().default(0),
   createdAt: z.number(),
+  messageLog: z.array(MessageLogEntrySchema).default([]),
 });
 
 export const HierarchyRegistrySchema = z.object({
@@ -130,6 +148,7 @@ export const HierarchyRegistrySchema = z.object({
   status: z.enum(["active", "inactive"]),
   activatedAt: z.number().nullable(),
   deactivatedAt: z.number().nullable(),
+  messageLog: z.array(MessageLogEntrySchema).default([]),
 });
 
 export const AgentMemoryEntrySchema = z.object({
