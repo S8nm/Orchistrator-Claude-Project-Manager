@@ -1,21 +1,12 @@
 Project: orchestrator
-Lang: TypeScript (strict, ES modules)
-Framework: Node.js monorepo (npm workspaces) + Next.js 14 (dashboard)
-Test: Vitest — cmd: npm test
-Lint: ESLint — cmd: npx eslint .
-Types: npx tsc --noEmit
+Lang: TypeScript
+Framework: Node.js
+Test: unknown — cmd: npm test
+Lint: unknown — cmd: 
 Build: npm run build
-Structure:
-  packages/shared/src/  : Zod schemas + TypeScript types
-  packages/cli/src/     : Commander.js CLI commands
-  packages/dashboard/src/ : Next.js app + Virtual Office React UI
-  skills/               : Claude Code skill files
-  projects.json         : Project registry (18 projects)
-Conventions: semi:true, double-quotes, trailing-commas, 2-space indent, 100 char width
 
 ROLE: {{ROLE}}
-SKILLS:
-{{SKILLS}}
+SKILLS: {{SKILLS}}
 SCOPE: {{SCOPE}}
 FORBIDDEN: {{FORBIDDEN}}
 BAR: production-ready, error-handled, match existing style

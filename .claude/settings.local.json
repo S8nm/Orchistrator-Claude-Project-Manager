@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(winget upgrade:*)",
+      "Bash(cd:*)",
+      "Bash(tail:*)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && npm run build --workspace=packages/shared 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && npx vitest run packages/cli/src/__tests__/registry.test.ts 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && npm run build --workspace=packages/cli 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && node packages/cli/dist/index.js --help 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && node packages/cli/dist/index.js project list 2>&1 && node packages/cli/dist/index.js --version 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && gh repo create \"Orchistrator-Claude-Project-Manager\" --public --source=. --remote=origin --push --description \"Master control center for all projects — CLI, Virtual Office dashboard, shared skills, and project registry\" 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && git push origin v0.1.0 2>&1)",
+      "Bash(start:*)",
+      "Bash(echo === $\\(basename \"$dir\"\\) ===:*)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && node packages/cli/dist/index.js project list 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && git add projects.json packages/shared/src/schemas.ts && git commit -m \"$\\(cat <<'EOF'\nfeat: register all 18 projects and fix schema for remote-only repos\n\nAdded all local and GitHub projects to the registry. Relaxed path\nvalidation in Zod schema to allow empty paths for remote-only projects.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin master 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && git add CLAUDE.md .claude/skills/ .claude/templates/ .claude/README.md docs/references/jarvis-toolbox.md && git commit -m \"$\\(cat <<'EOF'\nfeat: add multi-agent orchestrator protocol + skills + toolbox reference\n\n- Token-optimized CLAUDE.md with full orchestrator protocol\n- Prompt caching architecture \\(<1400 tok/agent target\\)\n- 4 skill files: backend, frontend, testing, devops\n- Agent prompt templates with cached REPO_CONTEXT prefix\n- J.A.R.V.I.S. toolbox reference doc\n- .claude/ directory with skills, templates, cache\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin master 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && git add packages/dashboard/src/app/api/ packages/dashboard/src/lib/api.ts packages/dashboard/src/components/project-manager.tsx packages/dashboard/src/components/virtual-office.tsx && git commit -m \"$\\(cat <<'EOF'\nfeat: add live API layer — bootstrap, run commands, manage projects from dashboard\n\n- /api/projects: CRUD for projects.json registry\n- /api/run: execute shell commands in any project directory\n- /api/bootstrap: auto-detect stack, create CLAUDE.md + skills for any project\n- ProjectManager component: real project cards with git status, custom commands, bootstrap\n- New \"Projects\" tab in Virtual Office connected to live registry\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin master 2>&1)",
+      "Bash(cd /c/Users/PC/Desktop/Claude && git add README.md && git commit -m \"$\\(cat <<'EOF'\ndocs: add comprehensive README\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push origin master 2>&1)",
+      "Bash(xargs -I{} sh -c 'echo \"\"=== {} ===\"\" && cat \"\"{}\"\"')",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(node --version)",
+      "Bash(where claude)"
+    ]
+  }
+}
